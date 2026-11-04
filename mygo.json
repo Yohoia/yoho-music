@@ -1,0 +1,16 @@
+{
+  "name": "Yoho Music",
+  "identifier": "dev.yohoia.yohomusic",
+  "slug": "yoho-music",
+  "version": "0.1.0",
+  "out": "build",
+  "macos": {
+    "icon": "icon/AppIcon.icon",
+    "minimumSystemVersion": "13.0"
+  },
+  "linux": {
+    "comment": "第三方网易云音乐桌面客户端",
+    "categories": ["AudioVideo", "Audio", "Player"],
+    "webview": false
+  }
+}

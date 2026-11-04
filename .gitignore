@@ -1,0 +1,6 @@
+/build/
+/.mygo/
+mygo_windows_*.syso
+/yoho-music
+/node_modules/
+.DS_Store
