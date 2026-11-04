@@ -1,5 +1,9 @@
 # Releasing
 
+## The updater key
+
+Updates are signed with an Ed25519 key pair. The public half is in `mygo.json`; the private half lives at `~/Library/Application Support/mygo/update-keys/mygo-update.key` and must also be the `MYGO_UPDATER_PRIVATE_KEY` secret of this repository, which CI uses to sign the update manifests. Losing the private key strands installed apps, so back it up in a password manager. If it is ever compromised, run `go tool mygo keygen -force`, commit the new public key, and update the secret — already-installed apps must then be updated by hand.
+
 1. Commit pending work, bring main up to date with origin, and run `go test ./internal/...`. Others push to main too, so a release cut from a stale main leaves out their work:
 
    ```bash

@@ -4,6 +4,10 @@
   "slug": "yoho-music",
   "version": "0.1.0",
   "out": "build",
+  "updates": {
+    "publicKey": "6Q0j8fInVbru/nIYABaJ8tXuK6tqSpzQI+MyGZH2H4M=",
+    "github": "Yohoia/yoho-music"
+  },
   "macos": {
     "icon": "icon/AppIcon.icon",
     "minimumSystemVersion": "13.0"
