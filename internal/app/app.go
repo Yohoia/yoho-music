@@ -34,6 +34,7 @@ func App(cx *core.Scope) {
 		dir = filepath.Join(base, "Yoho Music")
 	}
 	m := newModel(cx, dir)
+	m.marketURL = os.Getenv("YOHO_MUSIC_MARKET_URL")
 	window := desktop.OpenWindow(cx, desktop.WindowOptions{Title: "Yoho Music", Key: "main",
 		Width: 1180, Height: 780, Constraints: core.WindowConstraints{MinWidth: 880, MinHeight: 580}}, m.root)
 	if window == nil {

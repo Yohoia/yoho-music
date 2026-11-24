@@ -69,10 +69,16 @@ English.
 hover, native playback menu, and hardware media keys. Right-click the tray
 icon or press `⌥⇧P` to summon the top player.
 
-**Plugin market** — search and install plugins, import local signed NSGo
-packages, sign in to each source, and switch where your music comes from.
+**Plugin market** — browse the catalog and download signed NSGo packages on
+request. Yoho verifies the package, shows its permissions, and installs it
+locally for future launches. You can also import a local signed package.
 Plugins plug into search, playlists, lyrics and streaming. Read the
 [plugin interface and example](examples/nsgo-demo-plugin/README.md).
+
+[plugin-market.json](plugin-market.json) is the test catalog. To preview
+downloads, serve the catalog and its signed packages together and set
+`YOHO_MUSIC_MARKET_URL` when launching Yoho. Package URLs resolve relative
+to the catalog. The public catalog is planned for `yohomusic-website`.
 
 **Podcast captions** — models download on demand, transcription runs on your
 machine during playback, and captions are stored per show.

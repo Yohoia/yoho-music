@@ -71,6 +71,7 @@ type model struct {
 	plugins            *core.Signal[[]*plugin.NSGoSource]
 	nsgoStore          *core.Signal[*plugin.NSGoStore]
 	nsgoPluginBusy     *core.Signal[bool]
+	marketURL          string
 	accounts           *core.Signal[map[string]pluginAccount]
 	sourceVersion      *core.Signal[int]
 	signInDialog       *core.Signal[signInDialogState]

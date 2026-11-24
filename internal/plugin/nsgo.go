@@ -39,6 +39,7 @@ type NSGoSource struct {
 	// Sign-in prompts are scoped to one user-initiated call on the engine.
 	signInSequence uint64
 	signInPrompt   func(*core.HostCall)
+	build          uint64
 }
 
 // LoadNSGo starts a verified package on the engine goroutine. The host grants
@@ -48,12 +49,17 @@ func LoadNSGo(cx *core.Scope, verified *NSGoPackage) (*NSGoSource, error) {
 	s := &NSGoSource{
 		info:    music.Info{ID: NSGoSourcePrefix + p.App.ID, Name: p.App.Name, Version: p.App.Version, Playback: music.PlaybackStream},
 		scope:   cx,
+		build:   p.App.Build,
 		exports: make(map[string]bool),
 		grant:   pkg.Capabilities{Network: p.Capabilities.Network, Secrets: p.Capabilities.Secrets},
 	}
 	host := core.NewHost()
+	if p.App.ID == netEasePackageID && p.Capabilities.Allows(core.AccessHost, netEaseEncodeHandler, "") {
+		s.grant.Host = append(s.grant.Host, netEaseEncodeHandler)
+		host.Handle(netEaseEncodeHandler, encodeNetEaseCall)
+	}
 	if p.Capabilities.Allows(core.AccessHost, signInPromptHandler, "") {
-		s.grant.Host = []string{signInPromptHandler}
+		s.grant.Host = append(s.grant.Host, signInPromptHandler)
 		host.Handle(signInPromptHandler, func(call *core.HostCall) {
 			if s.signInPrompt == nil {
 				call.Reject(errors.New("start sign-in from the music source"))
@@ -79,6 +85,7 @@ func LoadNSGo(cx *core.Scope, verified *NSGoPackage) (*NSGoSource, error) {
 }
 
 func (s *NSGoSource) Info() music.Info { return s.info }
+func (s *NSGoSource) Build() uint64    { return s.build }
 func (s *NSGoSource) Can(name string) bool {
 	return s.exports[name] && !strings.HasPrefix(name, "remote")
 }

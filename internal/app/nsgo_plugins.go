@@ -44,6 +44,9 @@ func (m *model) confirmPluginInstall(cx *core.Scope, store *plugin.NSGoStore, p 
 		details = append(details, i18n.T("Network access"), rules)
 	}
 	install := i18n.T("Install")
+	if existing, ok := m.sourceByID(plugin.NSGoSourcePrefix + p.App().ID).(*plugin.NSGoSource); ok && existing.Build() < p.App().Build {
+		install = i18n.T("Update")
+	}
 	base.ShowAlertDialog(cx, base.AlertDialog{Title: p.App().Name, Description: strings.Join(details, "\n"),
 		Actions: []core.AlertAction{{Label: install}, {Label: i18n.T("Cancel"), Role: core.AlertCancel}},
 	}, func(choice string) {

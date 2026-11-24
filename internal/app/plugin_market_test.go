@@ -1,6 +1,12 @@
 package app
 
 import (
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -9,39 +15,131 @@ import (
 	"yoho-music/internal/plugin"
 )
 
+const netEasePackageFixture = "../plugin/bundled/netease/netease.nsgopkg"
+
+func marketFixture(t *testing.T, netEaseDownload func()) string {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/plugin-market.json":
+			http.ServeFile(w, r, "../../plugin-market.json")
+		case "/internal/plugin/bundled/netease/netease.nsgopkg":
+			if netEaseDownload != nil {
+				netEaseDownload()
+			}
+			http.ServeFile(w, r, netEasePackageFixture)
+		case "/internal/plugin/bundled/demo.nsgopkg":
+			http.ServeFile(w, r, "../plugin/bundled/demo.nsgopkg")
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server.URL + "/plugin-market.json"
+}
+
+func TestMarketDownloadsNetEaseOnRequest(t *testing.T) {
+	var downloads atomic.Int32
+	marketURL := marketFixture(t, func() { downloads.Add(1) })
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nsgo-plugins", "dev.yoho.music.netease.nsgopkg")
+	start := func(t *testing.T, marketURL string) *nsgotest.App {
+		return nsgotest.Start(t, func(cx *core.Scope) core.Node {
+			m := newModel(cx, dir)
+			m.marketURL = marketURL
+			return m.root(cx)
+		}, nsgotest.Size(1180, 780))
+	}
+	if !t.Run("browse, download and install", func(t *testing.T) {
+		app := start(t, marketURL)
+		button := "id:market-install-" + plugin.NetEaseSourceID
+		source := "id:source-" + plugin.NetEaseSourceID
+		app.Press("id:nav-plugin-market")
+		app.WaitUntil(5*time.Second, func() bool { return app.Exists(button) && app.Enabled(button) })
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) || app.Exists(source) || downloads.Load() != 0 {
+			t.Fatal("browsing downloaded or loaded the plugin")
+		}
+		denied := false
+		app.OnAlert = func(core.AlertConfig) int {
+			denied = true
+			return 1
+		}
+		app.Press(button)
+		app.WaitUntil(5*time.Second, func() bool { return denied && app.Enabled(button) })
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) || app.Exists(source) || downloads.Load() != 1 {
+			t.Fatal("canceling installation left the downloaded plugin installed")
+		}
+		app.OnAlert = func(core.AlertConfig) int { return 0 }
+		app.Press(button)
+		app.WaitFor(source, 5*time.Second)
+		if _, err := os.Stat(path); err != nil || downloads.Load() != 2 {
+			t.Fatalf("the downloaded plugin was not installed: %v", err)
+		}
+	}) {
+		return
+	}
+	t.Run("reload from disk without the market", func(t *testing.T) {
+		app := start(t, "")
+		app.WaitFor("id:source-"+plugin.NetEaseSourceID, 5*time.Second)
+		if downloads.Load() != 2 {
+			t.Fatal("restarting downloaded the installed plugin again")
+		}
+	})
+}
+
 func TestPluginMarket(t *testing.T) {
 	dir := t.TempDir()
+	marketURL := marketFixture(t, nil)
 	var m *model
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
 		m = newModel(cx, dir)
+		m.marketURL = marketURL
 		return m.root(cx)
 	}, nsgotest.Size(1180, 780))
 	app.OnAlert = func(core.AlertConfig) int { return 0 }
 	app.Press("id:nav-plugin-market")
 	app.WaitUntil(5*time.Second, func() bool { return app.Enabled("id:market-install-demo") })
 	app.Screenshot("plugin-market")
+	id := plugin.DemoSourceID
+	card := "id:market-card-" + id
+	dialog := "id:market-detail"
+	app.Press(card)
+	app.WaitFor(dialog, time.Second)
+	app.WaitFor("id:market-detail-install-demo", time.Second)
+	app.Screenshot("plugin-market-detail")
+	app.Key("escape")
+	app.WaitForGone(dialog, time.Second)
+	app.Press(card)
+	app.PressAt("id:market-detail-backdrop", core.Point{X: 20, Y: 150})
+	app.WaitForGone(dialog, time.Second)
+
 	app.Press("id:market-installed")
 	app.WaitForGone("id:market-install-demo", time.Second)
-	app.Press("id:market-all")
+	app.Press("id:market-browse-all")
 	app.Type("id:market-search", "no matching source")
 	app.WaitForGone("id:market-install-demo", time.Second)
-	// Reopen the page with a fresh filter.
-	app.Press("id:nav-settings")
-	app.Press("id:nav-plugin-market")
-	app.Press("id:market-install-demo")
+	app.Press("id:market-clear-search")
+	app.Press(card)
+	app.Press("id:market-detail-install-demo")
 
-	id := plugin.DemoSourceID
+	detailSignIn := "id:market-detail-sign-in-" + id
+	detailSignOut := "id:market-detail-sign-out-" + id
 	signIn := "id:market-sign-in-" + id
-	app.WaitFor(signIn, 5*time.Second)
-	app.WaitUntil(5*time.Second, func() bool { return app.Exists(signIn) && app.Enabled(signIn) })
-	app.Press(signIn)
+	app.WaitForGone("id:market-detail-install-demo", 5*time.Second)
+	app.WaitUntil(5*time.Second, func() bool { return app.Exists(detailSignIn) && app.Enabled(detailSignIn) })
+	app.Press(detailSignIn)
 	app.Press("id:sign-in-confirm")
-	app.WaitFor("id:market-sign-out-"+id, 5*time.Second)
+	app.WaitFor(detailSignOut, 5*time.Second)
+	app.Press("id:market-detail-close")
+	app.WaitForGone(dialog, time.Second)
 	app.Resize(880, 550)
 	app.Post(func() { m.updatePreferences(m.cx, func(p *preferences) { p.Appearance = "dark" }) })
 	app.Settle()
 	app.Screenshot("plugin-market-installed-minimum")
-	app.Press("id:market-open-" + id)
+	app.Press(card)
+	app.WaitFor(dialog, time.Second)
+	app.Screenshot("plugin-market-detail-installed-minimum")
+	app.Press("id:market-detail-open-" + id)
 	app.WaitFor("id:track-0", 5*time.Second)
 	app.Press("id:track-0")
 	app.WaitUntil(5*time.Second, func() bool {

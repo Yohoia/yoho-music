@@ -103,6 +103,7 @@ func FromSource(l *music.Lyrics) []Line {
 			l.Words = SpreadWords(l.Text, l.At, l.End)
 		}
 	}
+	applyTranslation(out, l.Translation)
 	return out
 }
 
@@ -123,7 +124,12 @@ func Build(lrc, translation string) []Line {
 		lines[i].End = end
 		lines[i].Words = SpreadWords(lines[i].Text, lines[i].At, end)
 	}
-	// Translations go to the line nearest their time.
+	applyTranslation(lines, translation)
+	return lines
+}
+
+// Translations go to the line nearest their time.
+func applyTranslation(lines []Line, translation string) {
 	for _, t := range parseLRC(translation) {
 		if t.Text == "" {
 			continue
@@ -142,7 +148,6 @@ func Build(lrc, translation string) []Line {
 			lines[best].Translation = t.Text
 		}
 	}
-	return lines
 }
 
 // SpreadWords splits text into words, each Chinese, Japanese or Korean

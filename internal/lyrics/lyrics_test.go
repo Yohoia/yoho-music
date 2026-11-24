@@ -44,7 +44,7 @@ func TestSpreadWords(t *testing.T) {
 // A source's own timed lines keep the times of their words, and a line given
 // without words or an end still gets both.
 func TestFromSourceLines(t *testing.T) {
-	lines := FromSource(&music.Lyrics{Lines: []music.LyricLine{
+	lines := FromSource(&music.Lyrics{Translation: "[00:13.01]Existing translation\n[00:20.10]A translated line", Lines: []music.LyricLine{
 		{Start: 13010, End: 17790, Translation: "Never", Words: []music.LyricWord{
 			{Start: 13010, End: 13670, Text: "Hold "},
 			{Start: 13670, End: 14340, Text: "on"},
@@ -62,7 +62,7 @@ func TestFromSourceLines(t *testing.T) {
 	if len(l.Words) != 2 || l.Words[1].Start != 13670*time.Millisecond {
 		t.Errorf("words %+v", l.Words)
 	}
-	if lines[1].End != 26*time.Second || len(lines[1].Words) != 2 {
+	if lines[1].End != 26*time.Second || len(lines[1].Words) != 2 || lines[1].Translation != "A translated line" {
 		t.Errorf("plain line %+v", lines[1])
 	}
 }

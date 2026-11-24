@@ -140,11 +140,12 @@ func (m *model) pluginNavigation(cx *core.Scope) core.Node {
 	info := src.Info()
 	items := []core.Node{m.sectionTitle(cx, info.Name)}
 	names := map[string]string{"home": i18n.T("Home"), "liked": i18n.T("Liked Songs"), "shows": i18n.T("Podcasts"),
-		"stations": i18n.T("Stations"), "playlists": i18n.T("Playlists")}
-	icons := map[string]glyph{"home": lucide.House, "liked": lucide.Heart, "shows": lucide.Mic, "stations": lucide.Radio, "playlists": lucide.ListMusic}
+		"stations": i18n.T("Stations"), "playlists": i18n.T("Playlists"), "recent": i18n.T("Recently Played"), "savedAlbums": i18n.T("Saved Albums")}
+	icons := map[string]glyph{"home": lucide.House, "liked": lucide.Heart, "shows": lucide.Mic, "stations": lucide.Radio,
+		"playlists": lucide.ListMusic, "recent": lucide.Clock, "savedAlbums": lucide.Disc3}
 	nav := info.Navigation
 	if len(nav) == 0 {
-		for _, page := range []string{"home", "liked", "playlists", "shows", "stations"} {
+		for _, page := range []string{"home", "liked", "playlists", "savedAlbums", "recent", "shows", "stations"} {
 			if src.Can(page) {
 				nav = append(nav, music.NavItem{Builtin: page})
 			}

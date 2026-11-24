@@ -24,11 +24,15 @@ func (m *model) pageView(cx *core.Scope, marketSearchRef *core.Ref) core.Node {
 		return m.pluginMarket(cx, marketSearchRef)
 	}
 	if r.page == "playlist-edit" {
-		return m.editPlaylist(cx, r.id)
+		return m.editPlaylist(cx, m.lib, r.id)
 	}
 	src := m.activeSource()
 	if src == nil {
 		return nil
+	}
+	if r.page == "source-playlist-edit" {
+		m.sourceVersion.Get()
+		return m.editPlaylist(cx, src, r.id)
 	}
 	if src.Info().ID == local.ID {
 		m.updated.Get()
@@ -98,6 +102,8 @@ type catalogData struct {
 	title, subtitle, image, description string
 	sections                            []music.Section
 	list                                *music.Playlist
+	album                               *music.Album
+	artist                              *music.Artist
 	show                                *music.Show
 	next                                int
 	searchNext                          map[music.SearchKind]int
@@ -156,12 +162,14 @@ func loadCatalog(src music.Source, r route) (catalogData, error) {
 	case "album":
 		p, err := src.Album(r.id)
 		if p != nil {
+			d.album = &p.Album
 			d.title, d.image, d.sections = p.Album.Name, p.Album.ImageURL, []music.Section{{Tracks: p.Tracks}}
 		}
 		return d, err
 	case "artist":
 		p, err := src.Artist(r.id)
 		if p != nil {
+			d.artist = &p.Artist
 			d.title, d.image, d.sections = p.Artist.Name, p.Artist.ImageURL, []music.Section{{Tracks: p.Tracks, Albums: p.Albums}}
 		}
 		return d, err
@@ -175,6 +183,13 @@ func loadCatalog(src music.Source, r route) (catalogData, error) {
 		lists, err := src.Playlists()
 		d.title, d.sections = i18n.T("Playlists"), []music.Section{{Playlists: lists}}
 		return d, err
+	case "recent":
+		tracks, err := src.Recent()
+		d.title, d.sections = i18n.T("Recently Played"), []music.Section{{Tracks: tracks}}
+		return d, err
+	case "savedAlbums":
+		d.title, d.sections = i18n.T("Saved Albums"), []music.Section{{}}
+		return loadMoreCatalog(src, r, d)
 	case "search":
 		d.title, d.subtitle = i18n.T("Search"), r.id
 		d.searchNext = make(map[music.SearchKind]int, len(catalogSearchKinds))
@@ -286,6 +301,18 @@ func loadMoreCatalog(src music.Source, r route, d catalogData) (catalogData, err
 				d.next = len(section.Tracks)
 			}
 		}
+	case "savedAlbums":
+		page, err := src.SavedAlbums(d.next)
+		if err != nil {
+			return catalogData{}, err
+		}
+		d.next = 0
+		if page != nil {
+			section.Albums = append(section.Albums, page.Albums...)
+			if page.More && len(page.Albums) > 0 {
+				d.next = len(section.Albums)
+			}
+		}
 	}
 	d.sections = []music.Section{section}
 	return d, nil
@@ -363,6 +390,9 @@ func (m *model) displayCatalog(cx *core.Scope, src music.Source, d catalogData, 
 	if d.list != nil && d.list.Mine && !d.list.Fixed && sourceID == local.ID {
 		actions = append(actions, iconButton(lucide.Pencil, i18n.T("Edit Playlist"), "edit-playlist", func() { m.navigate(route{page: "playlist-edit", id: d.list.ID}) }))
 	}
+	if sourceID != local.ID {
+		actions = append(actions, m.sourceCatalogActions(cx, src, d)...)
+	}
 	if d.show != nil {
 		show := *d.show
 		if src.Can("subscribeShow") {
@@ -418,12 +448,7 @@ func (m *model) changeSource(cx *core.Scope, src music.Source, fn func() error) 
 	go func() {
 		err := fn()
 		cx.Post(func() {
-			if errors.Is(err, music.ErrSignIn) && src.Can("signIn") {
-				m.changeAccount(src, true)
-				return
-			}
-			m.report(err)
-			if err == nil {
+			if m.sourceActionResult(src, err) {
 				m.sourceVersion.Update(func(n int) int { return n + 1 })
 			}
 		})
@@ -628,6 +653,9 @@ func (m *model) trackOptions(cx *core.Scope, track music.Track, index int, list 
 			}
 		}
 	}
+	if src != m.lib {
+		items = append(items, m.sourceTrackActions(cx, src, track, index, list, at)...)
+	}
 	trackMenu(cx, items, at)
 }
 
@@ -647,66 +675,82 @@ func formatTime(d time.Duration) string {
 	return fmt.Sprintf("%d:%02d", n/60, n%60)
 }
 
-func (m *model) editPlaylist(cx *core.Scope, id string) core.Node {
+func (m *model) editPlaylist(cx *core.Scope, src music.Source, id string) core.Node {
 	var initial string
-	if id != "" {
+	if id != "" && src == m.lib {
 		if p, _ := m.lib.Playlist(id); p != nil {
 			initial = p.Name
 		}
 	}
 	name := core.NewSignal(cx, initial)
+	ready := core.NewSignal(cx, id == "" || src == m.lib)
+	busy := core.NewSignal(cx, false)
+	if !ready.GetUntracked() {
+		go func() {
+			p, err := src.Playlist(id)
+			cx.Post(func() {
+				if m.sourceActionResult(src, err) && p != nil && p.Mine && !p.Fixed {
+					name.Set(p.Name)
+					ready.Set(true)
+				}
+			})
+		}()
+	}
 	title := i18n.T("New Playlist")
 	if id != "" {
 		title = i18n.T("Edit Playlist")
 	}
 	save := func() {
 		value := strings.TrimSpace(name.Get())
-		if value == "" {
+		if value == "" || busy.Get() || !ready.Get() {
 			return
 		}
+		busy.Set(true)
 		go func() {
 			target := id
 			var err error
 			if target == "" {
 				var p *music.Playlist
-				p, err = m.lib.CreatePlaylist(value)
+				p, err = src.CreatePlaylist(value)
 				if p != nil {
 					target = p.ID
 				}
 			} else {
-				err = m.lib.RenamePlaylist(target, value)
+				err = src.RenamePlaylist(target, value)
 			}
-			m.cx.Post(func() {
-				if err != nil {
-					m.report(err)
-					return
+			cx.Post(func() {
+				busy.Set(false)
+				if m.sourceActionResult(src, err) && target != "" {
+					m.navigate(route{page: "playlist", id: target})
 				}
-				m.navigate(route{page: "playlist", id: target})
 			})
 		}()
 	}
 	saveButton := button(i18n.T("Save"), "save-playlist", lucide.Check, save)
-	saveButton.Disabled = func() bool { return strings.TrimSpace(name.Get()) == "" }
+	saveButton.Disabled = func() bool { return !ready.Get() || busy.Get() || strings.TrimSpace(name.Get()) == "" }
 	actions := row(saveButton, button(i18n.T("Cancel"), "cancel-playlist", nil, m.goBack))
-	if id != "" {
-		actions.Children = append(actions.Children, button(i18n.T("Delete Playlist"), "delete-playlist", lucide.Trash, func() {
-			confirm(cx, i18n.T("Delete Playlist?"), initial, func() {
+	if id != "" && src.Can("deletePlaylist") {
+		remove := button(i18n.T("Delete Playlist"), "delete-playlist", lucide.Trash, func() {
+			confirm(cx, i18n.T("Delete Playlist?"), name.Get(), func() {
+				busy.Set(true)
 				go func() {
-					err := m.lib.DeletePlaylist(id)
-					m.cx.Post(func() {
-						if err != nil {
-							m.report(err)
-							return
+					err := src.DeletePlaylist(id)
+					cx.Post(func() {
+						busy.Set(false)
+						if m.sourceActionResult(src, err) {
+							m.navigate(route{page: "home"})
 						}
-						m.navigate(route{page: "home"})
 					})
 				}()
 			})
-		}))
+		})
+		remove.Disabled = func() bool { return !ready.Get() || busy.Get() }
+		actions.Children = append(actions.Children, remove)
 	}
 	return core.View{Style: fill, Children: []core.Node{m.pageHeader(cx, title, "", ""),
 		core.View{Style: core.Style{Padding: core.Symmetric(4, 28), Gap: 14, MaxWidth: core.Pt(500)}, Children: []core.Node{
-			ui.Input{Value: name.Get, OnChange: name.Set, OnSubmit: func(string) { save() }, Placeholder: i18n.T("Playlist Name"), TestID: "playlist-name"}, actions,
+			ui.Input{Value: name.Get, OnChange: name.Set, OnSubmit: func(string) { save() }, Disabled: func() bool { return !ready.Get() || busy.Get() },
+				Placeholder: i18n.T("Playlist Name"), TestID: "playlist-name"}, actions,
 		}},
 	}}
 }

@@ -21,8 +21,9 @@ var pluginName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 
 // NSGoStore verifies and stores signed music plugins in the application data directory.
 type NSGoStore struct {
-	dir   string
-	trust *pkg.Trust
+	dir           string
+	trust         *pkg.Trust
+	netEaseSigner string
 }
 
 type NSGoPackage struct {
@@ -53,6 +54,11 @@ func OpenNSGoStore(dataDir string) (*NSGoStore, error) {
 		return nil, err
 	}
 	trust.AddRoot(root)
+	netease, err := pkg.DecodePublicKey(netEaseRoot)
+	if err != nil {
+		return nil, err
+	}
+	trust.AddRoot(netease)
 	roots, err := filepath.Glob(filepath.Join(dir, "roots", "*.pub"))
 	if err != nil {
 		return nil, err
@@ -68,7 +74,7 @@ func OpenNSGoStore(dataDir string) (*NSGoStore, error) {
 		}
 		trust.AddRoot(key)
 	}
-	return &NSGoStore{dir: dir, trust: trust}, nil
+	return &NSGoStore{dir: dir, trust: trust, netEaseSigner: pkg.KeyID(netease)}, nil
 }
 
 func (s *NSGoStore) Read(path string) (*NSGoPackage, error) {

@@ -68,7 +68,7 @@ func (m *model) runAccount(source music.Source, signingIn bool, attempt context.
 			if p, ok := source.(*plugin.NSGoSource); ok {
 				signedIn, err = p.SignInWithPrompt(attempt, func(prompt music.SignInPrompt) {
 					dialog := m.signInDialog.GetUntracked()
-					if dialog.attempt == attempt {
+					if dialog.attempt == attempt && dialog.prompt != prompt {
 						dialog.prompt = prompt
 						m.signInDialog.Set(dialog)
 					}

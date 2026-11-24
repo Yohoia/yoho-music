@@ -140,8 +140,11 @@ export async function signOut() { await Secrets.delete("session"); }
 export function search() { return {}; }
 export function stream() { return null; }
 `, pkg.Capabilities{Secrets: true, Host: []string{"yoho.signInPrompt"}})
+	marketURL := marketFixture(t, nil)
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
-		return newModel(cx, dir).root(cx)
+		m := newModel(cx, dir)
+		m.marketURL = marketURL
+		return m.root(cx)
 	}, nsgotest.Size(1180, 780))
 	app.PickFiles = func(core.FilesRequest) []core.File { return []core.File{{Path: path}} }
 	app.OnAlert = func(core.AlertConfig) int { return 0 }
@@ -170,6 +173,7 @@ export function stream() { return null; }
 	if len(app.Secrets.Items()) != 1 {
 		t.Fatal("sign-in did not store the credential")
 	}
+	app.WaitUntil(5*time.Second, func() bool { return app.Enabled("id:market-install-demo") })
 	app.Press("id:market-install-demo")
 	demoSignIn := "id:market-sign-in-" + plugin.DemoSourceID
 	app.WaitUntil(5*time.Second, func() bool { return app.Exists(demoSignIn) && app.Enabled(demoSignIn) })
@@ -181,8 +185,23 @@ export function stream() { return null; }
 	app.WaitFor("id:track-0", 5*time.Second)
 	app.Press("id:nav-plugin-market")
 	app.WaitUntil(5*time.Second, func() bool { return app.Enabled("id:market-sign-out-" + sourceID) })
+	fixtureCard := "id:market-card-" + sourceID
+	demoCard := "id:market-card-" + plugin.DemoSourceID
+	fixtureFrame, demoFrame := app.Find(fixtureCard).Bounds(), app.Find(demoCard).Bounds()
+	if fixtureFrame.Origin.Y != demoFrame.Origin.Y || fixtureFrame.Origin.X >= demoFrame.Origin.X {
+		t.Fatalf("installed plugins should appear side by side: %v, %v", fixtureFrame, demoFrame)
+	}
+	app.Screenshot("plugin-market-two-columns")
+	app.Resize(880, 580)
+	app.Settle()
+	fixtureFrame, demoFrame = app.Find(fixtureCard).Bounds(), app.Find(demoCard).Bounds()
+	if fixtureFrame.Origin.X != demoFrame.Origin.X || fixtureFrame.Origin.Y >= demoFrame.Origin.Y {
+		t.Fatalf("installed plugins should stack in a narrow window: %v, %v", fixtureFrame, demoFrame)
+	}
 	app.Press("id:market-sign-out-" + sourceID)
 	app.WaitUntil(time.Second, func() bool { return app.Enabled(marketSignIn) })
+	app.Resize(1180, 780)
+	app.Settle()
 	app.Find(demoSignOut)
 	if len(app.Secrets.Items()) != 0 {
 		t.Fatal("sign-out did not clear the credential")
