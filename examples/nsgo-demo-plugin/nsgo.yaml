@@ -1,0 +1,11 @@
+name: Yoho NSGo Demo
+id: dev.yoho.music.demo
+version: 1.0.0
+capabilities:
+  network:
+    http:
+      - host: 127.0.0.1
+        port: 8765
+        methods: [GET]
+        schemes: [http]
+        paths: [/tone.mp3]

@@ -1,0 +1,21 @@
+name: Yoho Music
+id: dev.yoho.music
+version: 0.1.0
+url_schemes: [yoho-music]
+
+# Use the macOS icon with size-specific artwork and retain the PNG fallback.
+icon:
+  apple: assets/AppIcon.icns
+  png: assets/Icon.png
+
+dev:
+  # native: this machine's backend; web: the browser; ios: a connected iPhone; ios_simulator; android: a connected device or emulator.
+  target: native
+  # true, the default, rebuilds and restarts on save; false runs once and exits with the app.
+  hot_reload: true
+
+build:
+  output: dist
+  # true opens the output directory after building.
+  open: false
+  targets: [macos_arm64, macos_x64]

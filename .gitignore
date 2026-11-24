@@ -1,0 +1,7 @@
+/.nsgo/
+/dist/
+/yoho-music
+/.DS_Store
+
+# Upstream sources consulted while porting, not part of the app.
+/references/
