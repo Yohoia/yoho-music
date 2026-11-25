@@ -174,6 +174,8 @@ var zhCN = map[string]string{
 	"Measuring the space used…":                                                       "正在计算已用空间…",
 	"Menu Bar Only":                                                                   "仅菜单栏",
 	"Minimize":                                                                        "最小化",
+	"Collapse Playbar":                                                                "收起播放条",
+	"Expand Playbar":                                                                  "展开播放条",
 	"More":                                                                            "更多",
 	"Move Down":                                                                       "下移",
 	"Move Up":                                                                         "上移",

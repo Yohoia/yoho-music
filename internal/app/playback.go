@@ -337,7 +337,7 @@ func (m *model) playbarWaveform(cx *core.Scope) core.Node {
 	var panStartX core.Points
 	waveBox := core.View{
 		Ref:   waveRef,
-		Style: core.Style{FlexGrow: 1, FlexShrink: 1, Height: core.Pt(34), MinWidth: core.Pt(140), JustifyContent: core.JustifyCenter},
+		Style: core.Style{FlexGrow: 1, FlexShrink: 1, Height: core.Pt(34), MinWidth: core.Pt(0), JustifyContent: core.JustifyCenter},
 		OnMouseEnter: func(e core.MouseEvent) {
 			if r, lx, ok := ratioForX(e.PagePosition.X); ok {
 				hoverRatio.Set(r)
@@ -410,16 +410,18 @@ func (m *model) playbarWaveform(cx *core.Scope) core.Node {
 	return scrubber
 }
 
-func (m *model) playbarTrackInfo(cx *core.Scope) core.Node {
-	// Smooth vinyl-like cover rotation while playing; freezes at current angle when paused.
+func (m *model) playbarSpinAngle(cx *core.Scope) *core.Signal[float32] {
 	spinAngle := core.NewSignal(cx, float32(0))
+	spinning := core.NewMemo(cx, func() bool {
+		return m.playing.Get().playing && m.stage.Get() == "" && !cx.Env().ReduceMotion()
+	})
 	var stopSpin func()
 	cx.Effect(func() {
 		if stopSpin != nil {
 			stopSpin()
 			stopSpin = nil
 		}
-		if !m.playing.Get().playing || m.stage.Get() != "" || cx.Env().ReduceMotion() {
+		if !spinning.Get() {
 			return
 		}
 		var last time.Time
@@ -447,66 +449,79 @@ func (m *model) playbarTrackInfo(cx *core.Scope) core.Node {
 			stopSpin()
 		}
 	})
-
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		state := m.playing.Get()
-		title, detail, cover, source := "", "", "", ""
-		if state.track != nil {
-			source = state.track.Source
-			title = state.track.Name
-			detail = state.track.Album.Name
-			if detail == "" {
-				detail = state.track.ArtistNames()
-			}
-			cover = state.track.Album.ImageURL
-			if state.loading {
-				detail = i18n.T("Loading…")
-			}
-			if state.err != "" {
-				detail = state.err
-			}
-		}
-		face := core.Style{
-			Width: core.Pt(44), Height: core.Pt(44), CornerRadius: 22,
-			AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
-		}
-		var art core.Node
-		if cover == "" {
-			face.Gradients = []core.Gradient{coverGradientFor(title)}
-			art = core.View{Style: face}
-		} else {
-			art = core.Image{SourceFunc: m.coverSource(cx, cover, 88, source), Style: face, ResizeMode: core.Cover}
-		}
-		spinningArt := core.View{
-			Style: core.Style{Width: core.Pt(44), Height: core.Pt(44), CornerRadius: 22, Overflow: core.Hidden},
-			StyleFunc: func() core.Style {
-				return core.Style{Transform: core.Transform{Rotate: spinAngle.Get()}}
-			},
-			Children: []core.Node{art},
-		}
-		name := label(title, 14, core.FontWeightMedium, core.RGB(0xffffff))
-		name.MaxLines = 1
-		name.TestID = "current-track"
-		meta := label(detail, 12.5, core.FontWeightNormal, core.RGB(0x98989d))
-		meta.MaxLines = 1
-		info := base.Button{
-			Label:   i18n.T("Now Playing"),
-			TestID:  "now-playing",
-			OnPress: func(core.PressEvent) { m.openPlaybackPage() },
-			Style: core.Style{
-				Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12,
-				Width: core.Pt(170), FlexShrink: 1, CornerRadius: 22,
-				Transition: core.Transition{Duration: 150 * time.Millisecond, Easing: core.EaseOut},
-				Hover:      &core.Style{Opacity: core.Alpha(.88)},
-				Active:     &core.Style{Transform: core.Transform{Scale: 0.98}},
-			},
-			Children: []core.Node{spinningArt, core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, Gap: 2}, Children: []core.Node{name, meta}}},
-		}
-		return info
-	})
+	return spinAngle
 }
 
-func (m *model) playbarControls(cx *core.Scope) core.Node {
+func (m *model) playbarTrackInfo(cx *core.Scope, spinAngle *core.Signal[float32]) core.Node {
+	type artwork struct{ cover, source, fallback string }
+	currentArt := core.NewMemo(cx, func() artwork {
+		track := m.playing.Get().track
+		if track == nil {
+			return artwork{}
+		}
+		if track.Album.ImageURL != "" {
+			return artwork{cover: track.Album.ImageURL, source: track.Source}
+		}
+		return artwork{fallback: track.Name}
+	})
+
+	spinningArt := core.View{
+		Style: core.Style{Width: core.Pt(44), Height: core.Pt(44), CornerRadius: 22, Overflow: core.Hidden},
+		StyleFunc: func() core.Style {
+			return core.Style{Transform: core.Transform{Rotate: spinAngle.Get()}}
+		},
+		Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
+			art := currentArt.Get()
+			face := core.Style{Width: core.Pt(44), Height: core.Pt(44), CornerRadius: 22}
+			if art.cover != "" {
+				return core.Image{SourceFunc: m.coverSource(cx, art.cover, 88, art.source), Style: face, ResizeMode: core.Cover}
+			}
+			face.Gradients = []core.Gradient{coverGradientFor(art.fallback)}
+			return core.View{Style: face}
+		})},
+	}
+	name := label("", 14, core.FontWeightMedium, core.RGB(0xffffff))
+	name.ContentFunc = func() string {
+		if track := m.playing.Get().track; track != nil {
+			return track.Name
+		}
+		return ""
+	}
+	name.MaxLines = 1
+	name.TestID = "current-track"
+	meta := label("", 12.5, core.FontWeightNormal, core.RGB(0x98989d))
+	meta.ContentFunc = func() string {
+		state := m.playing.Get()
+		switch {
+		case state.track == nil:
+			return ""
+		case state.err != "":
+			return state.err
+		case state.loading:
+			return i18n.T("Loading…")
+		case state.track.Album.Name != "":
+			return state.track.Album.Name
+		default:
+			return state.track.ArtistNames()
+		}
+	}
+	meta.MaxLines = 1
+	return base.Button{
+		Label:   i18n.T("Now Playing"),
+		TestID:  "now-playing",
+		OnPress: func(core.PressEvent) { m.openPlaybackPage() },
+		Style: core.Style{
+			Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12,
+			Width: core.Pt(170), MinWidth: core.Pt(170), CornerRadius: 22,
+			Transition: core.Transition{Duration: 150 * time.Millisecond, Easing: core.EaseOut},
+			Hover:      &core.Style{Opacity: core.Alpha(.88)},
+			Active:     &core.Style{Transform: core.Transform{Scale: 0.98}},
+		},
+		Children: []core.Node{spinningArt, core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, Gap: 2}, Children: []core.Node{name, meta}}},
+	}
+}
+
+func (m *model) playbarControls(cx *core.Scope, onCollapse func()) core.Node {
 	// Observe changing glyphs in the icon nodes so control state survives playback updates.
 	btn := func(icon glyph, name, id string, size core.Points, tint func() core.Color, action func()) core.Node {
 		return base.Button{
@@ -761,9 +776,12 @@ func (m *model) playbarControls(cx *core.Scope) core.Node {
 				},
 				Style: core.Style{
 					Position: core.Absolute,
-					Width: core.Pt(volCapW), Height: core.Pt(volCapH), CornerRadius: 22,
+					Width:    core.Pt(volCapW), Height: core.Pt(volCapH), CornerRadius: 22,
 					Padding: core.Edges{Top: 14, Bottom: 6}, Gap: 6,
-					Background: core.RGBA(0x5c5c60, .96), BorderWidth: 1, BorderColor: core.RGBA(0xffffff, .10),
+					Background:      core.RGBA(0x4c4c52, .80),
+					BackdropFilters: []core.Filter{core.Blur(24), core.Saturate(1.45)},
+					Gradients:       []core.Gradient{core.LinearGradient(180, core.RGBA(0xffffff, .10), core.RGBA(0xffffff, .02))},
+					BorderWidth:     1, BorderColor: core.RGBA(0xffffff, .16),
 					AlignItems: core.AlignCenter, JustifyContent: core.JustifyEnd,
 					ShadowColor: core.RGBA(0x000000, .28), ShadowOffset: core.Point{Y: 6}, ShadowRadius: 18,
 					Transition: core.Transition{Duration: 200 * time.Millisecond, Easing: core.Curve{X1: .22, Y1: 1, X2: .36, Y2: 1}},
@@ -801,30 +819,146 @@ func (m *model) playbarControls(cx *core.Scope) core.Node {
 		Children: []core.Node{volBtn, volOverlay},
 	}
 
-	controls := row(prev, play, next, shuffle, repeat, queueBtn, m.remoteDevicePicker(cx), volWrap)
+	collapseBtn := btn(lucide.Minimize2, i18n.T("Collapse Playbar"), "playbar-collapse", 14.5, func() core.Color { return core.RGB(0xb4b4ba) }, func() {
+		cancelVolClose()
+		volOpen.Set(false)
+		if onCollapse != nil {
+			onCollapse()
+		}
+	})
+
+	controls := row(prev, play, next, shuffle, repeat, queueBtn, m.remoteDevicePicker(cx), volWrap, collapseBtn)
 	controls.Style.Gap = 5
 	return controls
 }
 
+func (m *model) playbarCompactRight(cx *core.Scope, spinAngle *core.Signal[float32], onExpand func()) core.Node {
+	// 3-bar warm-yellow animated equalizer synced with spinAngle while playing.
+	eq := core.Canvas{
+		Style: core.Style{Width: core.Pt(14), Height: core.Pt(14)},
+		Draw: func(d *core.Drawing, size core.Size) {
+			playing := m.playing.Get().playing
+			phase := float64(spinAngle.Get()) * math.Pi / 28.0
+			d.FillFromView(core.PaintColor(core.RGB(0xf5d033)))
+			const barW float32 = 2.4
+			const gap float32 = 2.4
+			h := float32(size.Height)
+			for i := 0; i < 3; i++ {
+				frac := float32(0.28)
+				if playing {
+					frac = 0.32 + 0.68*float32(0.5+0.5*math.Sin(phase+float64(i)*1.9))
+				}
+				bh := max(float32(3.5), frac*h)
+				x := float32(i) * (barW + gap)
+				y := h - bh
+				d.BeginPath()
+				d.RoundRect(x, y, barW, bh, barW/2)
+				d.Fill()
+			}
+		},
+	}
+
+	playBtn := base.Button{
+		Label:   i18n.T("Play/Pause"),
+		TestID:  "playbar-compact-play",
+		OnPress: func(core.PressEvent) { m.playback(m.player.TogglePlay)() },
+		Style: core.Style{
+			Width: core.Pt(30), Height: core.Pt(30), CornerRadius: 15,
+			AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+			Transition: core.Transition{Duration: 140 * time.Millisecond, Easing: core.EaseOut},
+			Hover:      &core.Style{Background: core.RGBA(0xffffff, .10)},
+			Active:     &core.Style{Transform: core.Transform{Scale: 0.88}},
+		},
+		Children: []core.Node{ui.IconOf(func() *core.SVG {
+			if m.playing.Get().playing {
+				return playbarPauseSVG
+			}
+			return playFillSVG
+		}, 15, func() core.Color { return core.RGB(0xffffff) })},
+	}
+
+	expandBtn := base.Button{
+		Label:  i18n.T("Expand Playbar"),
+		TestID: "playbar-expand",
+		OnPress: func(core.PressEvent) {
+			if onExpand != nil {
+				onExpand()
+			}
+		},
+		Style: core.Style{
+			Width: core.Pt(30), Height: core.Pt(30), CornerRadius: 15,
+			AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+			Transition: core.Transition{Duration: 140 * time.Millisecond, Easing: core.EaseOut},
+			Hover:      &core.Style{Background: core.RGBA(0xffffff, .10)},
+			Active:     &core.Style{Transform: core.Transform{Scale: 0.88}},
+		},
+		Children: []core.Node{ui.Icon(lucide.Maximize2, 14.5, func() core.Color { return core.RGB(0xb4b4ba) })},
+	}
+
+	right := row(eq, playBtn, expandBtn)
+	right.Style.Gap = 6
+	return right
+}
+
 func (m *model) playerBar(cx *core.Scope) core.Node {
 	smooth := core.Curve{X1: .22, Y1: 1, X2: .36, Y2: 1}
+	frost := []core.Filter{core.Blur(24), core.Saturate(1.45)}
+	sheen := []core.Gradient{core.LinearGradient(180, core.RGBA(0xffffff, .09), core.RGBA(0xffffff, .01))}
 	barBg := func() core.Color {
 		if cx.Dark() {
-			return core.RGB(0x222226)
+			return core.RGBA(0x202024, .76)
 		}
-		return core.RGB(0x1c1c1e)
+		return core.RGBA(0x18181b, .80)
 	}
 	barBorder := func() core.Color {
 		if cx.Dark() {
-			return core.RGBA(0xffffff, .12)
+			return core.RGBA(0xffffff, .16)
 		}
-		return core.RGBA(0xffffff, .08)
+		return core.RGBA(0xffffff, .14)
 	}
 	shadowColor := func() core.Color {
 		if cx.Dark() {
 			return core.RGBA(0x000000, .48)
 		}
-		return core.RGBA(0x000000, .26)
+		return core.RGBA(0x000000, .24)
+	}
+
+	const morphDuration = 340 * time.Millisecond
+	dockExpanded := core.NewSignal(cx, true)
+	animating := core.NewSignal(cx, false)
+	morph := core.NewAnimatedValue(cx, 1)
+	expandedOpacity := core.Interpolate(morph, core.Interpolation{
+		Input: []float64{.2, .8}, Output: []float64{0, 1}, Extrapolate: core.ExtrapolateClamp,
+	})
+	compactOpacity := core.Sub(core.Constant(1), expandedOpacity)
+	setExpanded := func(want bool) {
+		if dockExpanded.GetUntracked() == want {
+			return
+		}
+		to := 0.0
+		if want {
+			to = 1.0
+		}
+		if cx.Env().ReduceMotion() {
+			dockExpanded.Set(want)
+			animating.Set(false)
+			morph.Set(to)
+			return
+		}
+		// Commit the destination layout once. The platform interpolates its
+		// frames and the controls' opacity on the same frame clock.
+		cx.AnimateLayout(core.LayoutAnimation{Update: &core.LayoutTransition{
+			Duration: morphDuration, Curve: core.LayoutEaseInEaseOut,
+		}})
+		dockExpanded.Set(want)
+		animating.Set(true)
+		cx.StartAnimation(core.Timing(morph, to, core.TimingConfig{
+			Duration: morphDuration, Easing: core.BezierEasing(core.EaseInOut),
+		}), func(finished bool) {
+			if finished {
+				animating.Set(false)
+			}
+		})
 	}
 
 	// Idle centered "+ Add" pill (shown on Local Music when no track is playing).
@@ -845,7 +979,8 @@ func (m *model) playerBar(cx *core.Scope) core.Node {
 		OnPress:  func(core.PressEvent) { m.pickMusic(cx) },
 		Style: core.Style{
 			Direction: core.Row, Height: core.Pt(50), Padding: core.Symmetric(0, 28),
-			CornerRadius: 25, Background: barBg(), BorderWidth: 1, BorderColor: barBorder(),
+			CornerRadius: 25, Background: barBg(), BackdropFilters: frost, Gradients: sheen,
+			BorderWidth: 1, BorderColor: barBorder(),
 			AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 8,
 			ShadowColor: shadowColor(), ShadowOffset: core.Point{Y: 8}, ShadowRadius: 22,
 			Transition: core.Transition{Duration: 280 * time.Millisecond, Easing: smooth},
@@ -879,51 +1014,129 @@ func (m *model) playerBar(cx *core.Scope) core.Node {
 		Children: []core.Node{addPill},
 	}
 
-	// Active playing [untitled] Playbar pill + circular "+" button on the right.
+	spinAngle := m.playbarSpinAngle(cx)
 	hasTrack := func() bool { return m.playing.Get().track != nil }
-	pill := row(m.playbarTrackInfo(cx), m.playbarWaveform(cx), m.playbarControls(cx))
-	pill.Style.FlexGrow = 1
-	pill.Style.FlexShrink = 1
-	pill.Style.MaxWidth = core.Pt(880)
-	pill.Style.Height = core.Pt(60)
-	pill.Style.CornerRadius = 30
-	pill.Style.Background = barBg()
-	pill.Style.BorderWidth = 1
-	pill.Style.BorderColor = barBorder()
-	pill.Style.Padding = core.Edges{Left: 8, Right: 14}
-	pill.Style.Gap = 14
-	pill.Style.ShadowColor = shadowColor()
-	pill.Style.ShadowOffset = core.Point{Y: 10}
-	pill.Style.ShadowRadius = 26
 
-	showCircleAdd := func() bool { return hasTrack() && m.source.Get() == local.ID }
+	// Expanded body (waveform + full controls + collapse button) smoothly fades out during collapse.
+	expandedBody := row(
+		m.playbarWaveform(cx),
+		m.playbarControls(cx, func() { setExpanded(false) }),
+	)
+	expandedBody.TestID = "playbar-expanded-controls"
+	expandedBody.Style.FlexGrow = 1
+	expandedBody.Style.FlexShrink = 1
+	expandedBody.Style.MinWidth = core.Pt(0)
+	expandedBody.Style.Gap = 14
+	expandedBody.Style.Animated = &core.AnimatedStyle{Opacity: expandedOpacity}
+	expandedBody.StyleFunc = func() core.Style {
+		expanded := dockExpanded.Get()
+		s := core.Style{}
+		if !expanded || animating.Get() {
+			s.Overflow = core.Hidden
+		}
+		if !expanded {
+			s.PointerEvents = core.PointerEventsNone
+		}
+		return s
+	}
+
+	// Compact right controls (equalizer + play/pause + expand button) anchored to the right edge of the same 60pt pill.
+	compactRight := core.View{
+		TestID: "playbar-compact-controls",
+		Style: core.Style{
+			Position: core.Absolute, Right: core.Pt(12), Top: core.Pt(0), Bottom: core.Pt(0),
+			JustifyContent: core.JustifyCenter,
+			Animated: &core.AnimatedStyle{
+				Opacity: compactOpacity, TranslateX: core.Mul(expandedOpacity, core.Constant(8)),
+			},
+		},
+		StyleFunc: func() core.Style {
+			if dockExpanded.Get() {
+				return core.Style{PointerEvents: core.PointerEventsNone}
+			}
+			return core.Style{}
+		},
+		Children: []core.Node{m.playbarCompactRight(cx, spinAngle, func() { setExpanded(true) })},
+	}
+
+	// Single physical 60pt-tall frosted glass Playbar pill that smoothly morphs its width around center.
+	const compactW core.Points = 328
+	pill := core.View{
+		TestID: "playbar-surface",
+		Style: core.Style{
+			Direction: core.Row, AlignItems: core.AlignCenter,
+			Height: core.Pt(60), CornerRadius: 30,
+			Background: barBg(), BackdropFilters: frost, Gradients: sheen,
+			BorderWidth: 1, BorderColor: barBorder(),
+			Padding: core.Edges{Left: 8, Right: 14}, Gap: 14,
+			ShadowColor: shadowColor(), ShadowOffset: core.Point{Y: 10}, ShadowRadius: 26,
+		},
+		StyleFunc: func() core.Style {
+			if !dockExpanded.Get() {
+				return core.Style{Width: core.Pt(compactW)}
+			}
+			winW := cx.Env().Window().Width
+			maxExpanded := core.Points(900)
+			if winW > 0 {
+				avail := winW - 128
+				if m.source.Get() != local.ID {
+					avail = winW - 56
+				}
+				maxExpanded = min(maxExpanded, max(compactW, avail))
+			}
+			return core.Style{Width: core.Pt(maxExpanded)}
+		},
+		Children: []core.Node{
+			m.playbarTrackInfo(cx, spinAngle),
+			expandedBody,
+			compactRight,
+		},
+	}
+
+	// Right circular "+" button smoothly shrinks/fades out alongside the pill so the dock stays dead-center.
+	showCircleAdd := func() bool { return hasTrack() && dockExpanded.Get() && m.source.Get() == local.ID }
 	addCircle := core.Show{
 		When: func() bool { return m.source.Get() == local.ID },
 		Then: func(cx *core.Scope) core.Node {
-			return base.Button{
-				Label:    i18n.T("Add a Music Folder"),
-				TestID:   "playbar-add",
-				Disabled: func() bool { return !showCircleAdd() },
-				OnPress:  func(core.PressEvent) { m.pickMusic(cx) },
+			return core.View{
 				Style: core.Style{
-					Width: core.Pt(60), Height: core.Pt(60), CornerRadius: 30,
-					Background: barBg(), BorderWidth: 1, BorderColor: barBorder(),
-					AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
-					ShadowColor: shadowColor(), ShadowOffset: core.Point{Y: 10}, ShadowRadius: 26,
-					Transition: core.Transition{Duration: 280 * time.Millisecond, Easing: smooth},
-					Hover:      &core.Style{Transform: core.Transform{Scale: 1.05}},
-					Active:     &core.Style{Transform: core.Transform{Scale: 0.94}},
+					Height: core.Pt(60), JustifyContent: core.JustifyCenter, AlignItems: core.AlignCenter,
+					Animated: &core.AnimatedStyle{
+						Opacity: morph, Scale: core.Add(core.Constant(.85), core.Mul(morph, core.Constant(.15))),
+					},
 				},
-				Children: []core.Node{ui.Icon(lucide.Plus, 21, func() core.Color { return core.RGB(0xffffff) })},
+				StyleFunc: func() core.Style {
+					if dockExpanded.Get() {
+						return core.Style{Width: core.Pt(60), Margin: core.Edges{Left: 10}}
+					}
+					return core.Style{Width: core.Pt(0), PointerEvents: core.PointerEventsNone}
+				},
+				Children: []core.Node{
+					base.Button{
+						Label:    i18n.T("Add a Music Folder"),
+						TestID:   "playbar-add",
+						Disabled: func() bool { return !showCircleAdd() },
+						OnPress:  func(core.PressEvent) { m.pickMusic(cx) },
+						Style: core.Style{
+							Width: core.Pt(60), Height: core.Pt(60), CornerRadius: 30,
+							Background: barBg(), BackdropFilters: frost, Gradients: sheen,
+							BorderWidth: 1, BorderColor: barBorder(),
+							AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+							ShadowColor: shadowColor(), ShadowOffset: core.Point{Y: 10}, ShadowRadius: 26,
+							Transition: core.Transition{Duration: 180 * time.Millisecond, Easing: smooth},
+							Hover:      &core.Style{Transform: core.Transform{Scale: 1.05}},
+							Active:     &core.Style{Transform: core.Transform{Scale: 0.94}},
+						},
+						Children: []core.Node{ui.Icon(lucide.Plus, 21, func() core.Color { return core.RGB(0xffffff) })},
+					},
+				},
 			}
 		},
 	}
 
 	activeDock := row(pill, addCircle)
 	activeDock.PointerEvents = core.PointerEventsBoxNone
-	activeDock.Style.Width = core.Pct(100)
-	activeDock.Style.MaxWidth = core.Pt(950)
-	activeDock.Style.Gap = 10
+	activeDock.Style.Gap = 0
 	activeDock.Style.JustifyContent = core.JustifyCenter
 	activeDock.Style.Transition = core.Transition{Duration: 340 * time.Millisecond, Easing: smooth}
 	activeDock.StyleFunc = func() core.Style {
@@ -940,13 +1153,49 @@ func (m *model) playerBar(cx *core.Scope) core.Node {
 		}
 	}
 
+	// Subtle progressive bottom frosted mist so scrolling covers dissolve gracefully under the dock.
+	bottomMist := core.View{
+		PointerEvents: core.PointerEventsNone,
+		Style: core.Style{
+			Position: core.Absolute, Left: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(-20),
+			Height:          core.Pt(72),
+			BackdropFilters: []core.Filter{core.Blur(12)},
+			Mask: &core.Gradient{
+				Kind:  core.GradientLinear,
+				Angle: 0,
+				Stops: []core.ColorStop{
+					{Color: core.RGBA(0x000000, 1), At: core.Pct(0)},
+					{Color: core.RGBA(0x000000, .65), At: core.Pct(45)},
+					{Color: core.RGBA(0x000000, 0), At: core.Pct(100)},
+				},
+			},
+		},
+		StyleFunc: func() core.Style {
+			bgHex := uint32(0xffffff)
+			if cx.Dark() {
+				bgHex = 0x151517
+			}
+			return core.Style{
+				Gradients: []core.Gradient{{
+					Kind:  core.GradientLinear,
+					Angle: 0,
+					Stops: []core.ColorStop{
+						{Color: core.RGBA(bgHex, .72), At: core.Pct(0)},
+						{Color: core.RGBA(bgHex, .32), At: core.Pct(55)},
+						{Color: core.RGBA(bgHex, 0), At: core.Pct(100)},
+					},
+				}},
+			}
+		},
+	}
+
 	return core.View{
 		PointerEvents: core.PointerEventsBoxNone,
 		Style: core.Style{
 			Position: core.Absolute, Left: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(20),
 			Padding: core.Symmetric(0, 24), AlignItems: core.AlignCenter,
 		},
-		Children: []core.Node{idleLayer, activeDock},
+		Children: []core.Node{bottomMist, idleLayer, activeDock},
 	}
 }
 

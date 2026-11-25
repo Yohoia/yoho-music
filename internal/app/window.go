@@ -165,15 +165,10 @@ func (m *model) root(cx *core.Scope) core.Node {
 					}
 					return core.Style{}
 				}, Children: []core.Node{
-					m.topNav(cx, menuBtnRef, openSearch),
-					core.Show{When: func() bool { return m.error.Get() != "" }, Then: func(cx *core.Scope) core.Node {
-						return row(core.Text{ContentFunc: m.error.Get, Style: core.Style{FlexGrow: 1, FlexShrink: 1, Color: colors(cx).accent, Padding: core.All(12)}},
-							iconButton(lucide.X, i18n.T("Dismiss"), "dismiss", func() { m.error.Set("") }))
-					}},
-					m.subNav(cx, menuBtnRef, openSearch),
 					core.View{Style: fill, Children: []core.Node{
 						core.Dynamic(func(cx *core.Scope) core.Node { return m.pageView(cx, marketSearchRef) }),
 					}},
+					m.floatingHeader(cx, p, menuBtnRef, openSearch),
 					m.playerBar(cx),
 				}},
 			core.Show{When: func() bool { return m.stage.Get() != "" }, Then: m.nowPlaying},
@@ -264,6 +259,76 @@ func (m *model) isSubNavVisible() bool {
 func (m *model) searchIconButton(cx *core.Scope, openSearch func()) core.Node {
 	return m.headerActionButton(colors(cx), nil, lucide.Search, i18n.T("Search"), "search-trigger",
 		m.searchOpen.Get, openSearch)
+}
+
+func (m *model) hasSubNav() bool {
+	r := m.page.Get()
+	sourceID := m.source.Get()
+	if sourceID == local.ID {
+		return isLocalCategoryPage(r.page)
+	}
+	src := m.activeSource()
+	if src == nil {
+		return false
+	}
+	return isPluginCategoryPage(r, pluginNavEntries(src))
+}
+
+func (m *model) floatingHeader(cx *core.Scope, p palette, menuBtnRef *core.Ref, openSearch func()) core.Node {
+	// Progressive frosted glass header backdrop: crisp frosted blur behind topNav/subNav
+	// that smoothly dissolves into transparent mist over scrolling content below.
+	frostFade := core.View{
+		PointerEvents: core.PointerEventsNone,
+		Style: core.Style{
+			Position: core.Absolute, Top: core.Pt(0), Left: core.Pt(0), Right: core.Pt(0),
+			BackdropFilters: []core.Filter{core.Blur(20), core.Saturate(1.35)},
+			Mask: &core.Gradient{
+				Kind:  core.GradientLinear,
+				Angle: 180,
+				Stops: []core.ColorStop{
+					{Color: core.RGBA(0x000000, 1), At: core.Pct(0)},
+					{Color: core.RGBA(0x000000, 1), At: core.Pct(68)},
+					{Color: core.RGBA(0x000000, 0), At: core.Pct(100)},
+				},
+			},
+		},
+		StyleFunc: func() core.Style {
+			h := core.Pt(56)
+			if m.hasSubNav() {
+				h = core.Pt(98)
+			}
+			bgHex := uint32(0xffffff)
+			if cx.Dark() {
+				bgHex = 0x151517
+			}
+			return core.Style{
+				Height: h,
+				Gradients: []core.Gradient{{
+					Kind:  core.GradientLinear,
+					Angle: 180,
+					Stops: []core.ColorStop{
+						{Color: core.RGBA(bgHex, .88), At: core.Pct(0)},
+						{Color: core.RGBA(bgHex, .74), At: core.Pct(64)},
+						{Color: core.RGBA(bgHex, 0), At: core.Pct(100)},
+					},
+				}},
+			}
+		},
+	}
+
+	return core.View{
+		PointerEvents: core.PointerEventsBoxNone,
+		Style:         core.Style{Position: core.Absolute, Top: core.Pt(0), Left: core.Pt(0), Right: core.Pt(0)},
+		Children: []core.Node{
+			frostFade,
+			m.topNav(cx, menuBtnRef, openSearch),
+			core.Show{When: func() bool { return m.error.Get() != "" }, Then: func(cx *core.Scope) core.Node {
+				return row(core.Text{ContentFunc: m.error.Get, Style: core.Style{FlexGrow: 1, FlexShrink: 1, Color: colors(cx).accent, Padding: core.All(12)}},
+					iconButton(lucide.X, i18n.T("Dismiss"), "dismiss", func() { m.error.Set("") }))
+			}},
+			m.subNav(cx, menuBtnRef, openSearch),
+		},
+	}
 }
 
 func (m *model) topNav(cx *core.Scope, menuBtnRef *core.Ref, openSearch func()) core.Node {

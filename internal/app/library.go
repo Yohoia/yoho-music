@@ -645,7 +645,11 @@ func (m *model) displayCatalog(cx *core.Scope, src music.Source, d catalogData, 
 	if footer != nil {
 		body = append(body, paperWrap(footer))
 	}
-	return core.Scroll{Style: fill, Children: []core.Node{core.View{Style: core.Style{Gap: 16, Padding: core.Edges{Top: 10, Bottom: 108}}, Children: body}}}
+	topPad := core.Points(46)
+	if m.hasSubNav() {
+		topPad = 86
+	}
+	return core.Scroll{Style: fill, Children: []core.Node{core.View{Style: core.Style{Gap: 16, Padding: core.Edges{Top: topPad, Bottom: 108}}, Children: body}}}
 }
 
 func albumSubtitle(album music.Album) string {

@@ -190,7 +190,7 @@ func (m *model) pluginMarket(cx *core.Scope, searchRef *core.Ref) core.Node {
 		}
 		return core.View{Style: core.Style{Padding: core.Edges{Top: 22, Left: 28, Right: 28, Bottom: 28}, Gap: 24}, Children: sections}
 	})
-	return core.View{TestID: "plugin-market", Style: fill,
+	return core.View{TestID: "plugin-market", Style: fill.Merge(core.Style{Padding: core.Edges{Top: 36}}),
 		OnLayout: func(bounds core.Bounds) {
 			columns := bounds.Size.Width >= 960
 			if columns != wide.GetUntracked() {

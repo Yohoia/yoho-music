@@ -112,7 +112,7 @@ func (m *model) settingsPage(cx *core.Scope) core.Node {
 		row(core.Image{Source: core.ImageSource{Data: settingsIcon}, Style: core.Style{Width: core.Pt(30), Height: core.Pt(30)}},
 			label("Yoho Music "+core.App().Version, 12, core.FontWeightMedium, p.muted)),
 	}
-	return core.View{Style: fill, Children: []core.Node{m.pageHeader(cx, i18n.T("Settings"), "", ""),
+	return core.View{Style: fill.Merge(core.Style{Padding: core.Edges{Top: 36}}), Children: []core.Node{m.pageHeader(cx, i18n.T("Settings"), "", ""),
 		core.Scroll{Style: fill, Children: []core.Node{core.View{Style: core.Style{Gap: 15, Padding: core.Edges{Top: 4, Left: 28, Right: 28, Bottom: 100}}, Children: controls}}},
 	}}
 }
