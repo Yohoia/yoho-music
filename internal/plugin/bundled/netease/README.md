@@ -4,7 +4,9 @@
 
 登录后可以搜索歌曲、专辑、艺人、歌单和播客，浏览每日推荐、排行榜和音乐云盘，查询最近播放和收藏，编辑自建歌单，收听私人 FM，浏览播客和评论。在线播放、音质、账号权限和地区可用性由网易云返回。歌词支持 LRC、翻译和逐字同步。
 
-扫码流程和功能以 [sogud/mygo-music-netease](https://github.com/sogud/mygo-music-netease)、[AkinoKaede/mygo-music-netease-cloud-music](https://github.com/AkinoKaede/mygo-music-netease-cloud-music) 和 [hubandad/mygo-music-netease](https://github.com/hubandad/mygo-music-netease) 为参考。宿主的 AES 编码函数复用了 MyGo Music v0.1.25 的实现，沿用 AGPL-3.0。
+发现页提供公开推荐歌单和排行榜。登录后还能读取最近一周与所有时间的听歌排行、每日推荐、私人雷达、个性化歌单和云盘。私人漫游提供默认推荐、熟悉的歌和新发现三种模式，播放队列消耗后继续取歌。私人漫游依赖网易云音乐 App 中的「个性化服务」设置。
+
+扫码流程和功能以 [sogud/mygo-music-netease](https://github.com/sogud/mygo-music-netease/tree/82696baa3f773d7661a568a430bde8d68f8d0f43)、[AkinoKaede/mygo-music-netease-cloud-music](https://github.com/AkinoKaede/mygo-music-netease-cloud-music) 和 [hubandad/mygo-music-netease](https://github.com/hubandad/mygo-music-netease) 为参考。宿主的 AES 编码函数复用了 MyGo Music v0.1.25 的实现，沿用 AGPL-3.0。
 
 ## 重新打包
 

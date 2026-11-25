@@ -15,15 +15,42 @@ type glyph = func() *core.SVG
 
 type palette struct {
 	background, sidebar, text, muted, line, hover, selected, accent core.Color
+	chip, button, onButton, bar, barLine                            core.Color
 }
 
 func colors(cx *core.Scope) palette {
 	if cx.Dark() {
-		return palette{core.RGB(0x141416), core.RGB(0x1c1c1f), core.RGB(0xf5f5f7), core.RGB(0xa5a5ae),
-			core.RGBA(0xffffff, .08), core.RGBA(0xffffff, .06), core.RGBA(0xffffff, .11), core.RGB(0xff5366)}
+		return palette{
+			background: core.RGB(0x151517),
+			sidebar:    core.RGB(0x1c1c20),
+			text:       core.RGB(0xf4f4f5),
+			muted:      core.RGB(0xb0b0b9),
+			line:       core.RGB(0x343438),
+			hover:      core.RGBA(0xffffff, .06),
+			selected:   core.RGBA(0xffffff, .11),
+			accent:     core.RGB(0xf5f5f7),
+			chip:       core.RGB(0x242427),
+			button:     core.RGB(0xededf0),
+			onButton:   core.RGB(0x18181b),
+			bar:        core.RGB(0x18181b),
+			barLine:    core.RGB(0x27272a),
+		}
 	}
-	return palette{core.RGB(0xffffff), core.RGB(0xf4f4f6), core.RGB(0x1d1d1f), core.RGB(0x62626b),
-		core.RGBA(0x000000, .08), core.RGBA(0x000000, .04), core.RGBA(0x000000, .08), core.RGB(0xce2848)}
+	return palette{
+		background: core.RGB(0xffffff),
+		sidebar:    core.RGB(0xf5f5f7),
+		text:       core.RGB(0x09090b),
+		muted:      core.RGB(0x71717a),
+		line:       core.RGB(0xe4e4e7),
+		hover:      core.RGBA(0x09090b, .04),
+		selected:   core.RGBA(0x09090b, .08),
+		accent:     core.RGB(0x1d1d1f),
+		chip:       core.RGB(0xfafaf9),
+		button:     core.RGB(0x27272a),
+		onButton:   core.RGB(0xffffff),
+		bar:        core.RGB(0xffffff),
+		barLine:    core.RGB(0xebebeb),
+	}
 }
 
 var fill = core.Style{FlexGrow: 1, FlexShrink: 1}
@@ -46,18 +73,30 @@ func row(children ...core.Node) core.View {
 
 func spacer() core.View { return core.View{Style: core.Style{FlexGrow: 1}} }
 
+const paperWidth = core.Points(900)
+
+func paperWrap(children ...core.Node) core.View {
+	return core.View{
+		Style: core.Style{
+			Width: core.Pct(100), MaxWidth: core.Pt(paperWidth),
+			AlignSelf: core.AlignCenter,
+		},
+		Children: children,
+	}
+}
+
 func (m *model) root(cx *core.Scope) core.Node {
 	theme := *core.DefaultTheme()
-	applyAccent := func(p *core.Palette, accent, hover, pressed uint32) {
+	applyAccent := func(p *core.Palette, accent, hover, pressed, onAccent uint32) {
 		p.Accent = core.RGB(accent)
 		p.AccentHover = core.RGB(hover)
 		p.AccentPressed = core.RGB(pressed)
-		p.AccentText = core.RGB(0xffffff)
+		p.AccentText = core.RGB(onAccent)
 		p.Focus = core.RGB(accent)
-		p.Selection = core.RGBA(accent, .26)
+		p.Selection = core.RGBA(accent, .18)
 	}
-	applyAccent(&theme.Light, 0xce2848, 0xbe2341, 0xad203b)
-	applyAccent(&theme.Dark, 0xd63555, 0xe74765, 0xc72e4d)
+	applyAccent(&theme.Light, 0x1d1d1f, 0x27272a, 0x09090b, 0xffffff)
+	applyAccent(&theme.Dark, 0xf5f5f7, 0xffffff, 0xd4d4d8, 0x141416)
 	cx.SetTheme(&theme)
 	cx.Effect(func() {
 		displays := cx.Env().Displays()
@@ -76,22 +115,27 @@ func (m *model) root(cx *core.Scope) core.Node {
 			}
 		}
 	})
-	desktop.SetTitleBar(cx, desktop.TitleBarHidden, 42)
-	desktop.SetWindowControls(cx, desktop.WindowControls{TrafficLights: core.Point{X: 20, Y: 15}})
+	desktop.SetTitleBar(cx, desktop.TitleBarHidden, 52)
+	desktop.SetWindowControls(cx, desktop.WindowControls{TrafficLights: core.Point{X: 20, Y: 20}})
 	searchRef := &core.Ref{}
 	marketSearchRef := &core.Ref{}
-	cx.OnKey("mod+f", func() {
+	openSearch := func() {
 		m.stage.Set("")
 		if m.page.GetUntracked().page == "plugin-market" {
 			marketSearchRef.Focus()
-		} else {
-			searchRef.Focus()
+			return
 		}
-	})
+		m.searchOpen.Set(true)
+		cx.Post(searchRef.Focus)
+	}
+	cx.OnKey("mod+k", openSearch)
+	cx.OnKey("mod+f", openSearch)
 	cx.OnKey("alt+left", m.goBack)
 	cx.OnKey("alt+right", m.goForward)
 	cx.OnKey("escape", func() {
-		if m.signInDialog.GetUntracked().source != nil {
+		if m.searchOpen.GetUntracked() {
+			m.searchOpen.Set(false)
+		} else if m.signInDialog.GetUntracked().source != nil {
 			m.closeSignInDialog()
 		} else {
 			m.closePlaybackPage()
@@ -105,7 +149,7 @@ func (m *model) root(cx *core.Scope) core.Node {
 		_ = language.Get()
 		p := colors(cx)
 		return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, Background: p.background}, Children: []core.Node{
-			core.View{Style: core.Style{Direction: core.Row, FlexGrow: 1, FlexShrink: 1},
+			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1},
 				AccessibilityElementsHidden: func() bool { return m.stage.Get() != "" },
 				StyleFunc: func() core.Style {
 					if m.stageCovered.Get() {
@@ -113,108 +157,299 @@ func (m *model) root(cx *core.Scope) core.Node {
 					}
 					return core.Style{}
 				}, Children: []core.Node{
-					m.sidebar(cx), core.View{Style: fill, Children: []core.Node{
-						m.toolbar(cx, searchRef),
-						core.Show{When: func() bool { return m.error.Get() != "" }, Then: func(cx *core.Scope) core.Node {
-							return row(core.Text{ContentFunc: m.error.Get, Style: core.Style{FlexGrow: 1, FlexShrink: 1, Color: colors(cx).accent, Padding: core.All(12)}},
-								iconButton(lucide.X, i18n.T("Dismiss"), "dismiss", func() { m.error.Set("") }))
-						}},
-						core.Dynamic(func(cx *core.Scope) core.Node { return m.pageView(cx, marketSearchRef) }), m.playerBar(cx),
+					m.topNav(cx, openSearch),
+					core.Show{When: func() bool { return m.error.Get() != "" }, Then: func(cx *core.Scope) core.Node {
+						return row(core.Text{ContentFunc: m.error.Get, Style: core.Style{FlexGrow: 1, FlexShrink: 1, Color: colors(cx).accent, Padding: core.All(12)}},
+							iconButton(lucide.X, i18n.T("Dismiss"), "dismiss", func() { m.error.Set("") }))
 					}},
+					m.subNav(cx),
+					core.View{Style: fill, Children: []core.Node{
+						core.Dynamic(func(cx *core.Scope) core.Node { return m.pageView(cx, marketSearchRef) }),
+					}},
+					m.playerBar(cx),
 				}},
 			core.Show{When: func() bool { return m.stage.Get() != "" }, Then: m.nowPlaying},
+			m.searchOverlay(cx, searchRef),
 			m.signInDialogView(cx),
 		}}
 	})
 }
 
-func (m *model) toolbar(cx *core.Scope, searchRef *core.Ref) core.Node {
-	back := iconButton(lucide.ChevronLeft, i18n.T("Back"), "back", m.goBack)
-	back.Disabled = func() bool { m.history.Get(); return len(m.back) == 0 }
-	forward := iconButton(lucide.ChevronRight, i18n.T("Forward"), "forward", m.goForward)
-	forward.Disabled = func() bool { m.history.Get(); return len(m.forward) == 0 }
-	search := core.Show{When: func() bool { return m.page.Get().page != "plugin-market" }, Then: func(*core.Scope) core.Node {
-		return ui.Input{Ref: searchRef, Value: m.query.Get, OnChange: m.query.Set, OnSubmit: m.search,
-			Placeholder: i18n.T("Search"), TestID: "search", Style: core.Style{Width: core.Pt(244)}}
-	}}
-	bar := row(back, forward, spacer(), search,
-		iconButton(lucide.Settings, i18n.T("Settings"), "settings", func() { m.navigate(route{page: "settings"}) }))
-	bar.Style.Padding = core.Symmetric(4, 24)
-	bar.Style.Height = core.Pt(46)
-	bar.Desktop.WindowDrag = core.WindowDragOn
-	return bar
-}
-
-func (m *model) sidebar(cx *core.Scope) core.Node {
-	p := colors(cx)
-	return core.View{Style: core.Style{Width: core.Pt(232), Background: p.sidebar, Padding: core.Edges{Top: 44, Right: 12, Bottom: 14, Left: 12}, Gap: 10}, Children: []core.Node{
-		core.Dynamic(func(cx *core.Scope) core.Node {
-			var items []core.Node
-			plugins := m.plugins.Get()
-			if len(plugins) > 0 {
-				items = append(items, m.nav(cx, lucide.HardDrive, i18n.T("Local Music"), "source-local", false, func() { m.selectSource(local.ID) }))
-				for _, p := range plugins {
-					info := p.Info()
-					items = append(items, m.nav(cx, lucide.Radio, info.Name, "source-"+info.ID, false, func() { m.selectSource(info.ID) }))
-				}
-			}
-			return core.Group(items)
-		}),
-		core.Scroll{Style: fill, Children: []core.Node{core.Dynamic(func(cx *core.Scope) core.Node {
-			if m.source.Get() != local.ID {
-				return m.pluginNavigation(cx)
-			}
-			m.updated.Get()
-			items := []core.Node{
-				m.sectionTitle(cx, i18n.T("Local Music")),
-				m.navTo(cx, lucide.House, i18n.T("Home"), route{page: "home"}),
-				m.navTo(cx, lucide.Music, i18n.T("Songs"), route{page: "songs"}),
-				m.navTo(cx, lucide.Disc3, i18n.T("Albums"), route{page: "albums"}),
-				m.navTo(cx, lucide.Users, i18n.T("Artists"), route{page: "artists"}),
-				m.navTo(cx, lucide.Heart, i18n.T("Liked Songs"), route{page: "liked"}),
-			}
-			header := row(m.sectionTitle(cx, i18n.T("My Playlists")), spacer(), iconButton(lucide.Plus, i18n.T("New Playlist"), "new-playlist", func() { m.navigate(route{page: "playlist-edit"}) }))
-			header.Style.Margin.Top = 14
-			items = append(items, header)
-			lists, _ := m.lib.Playlists()
-			for _, list := range lists {
-				items = append(items, m.navTo(cx, lucide.ListMusic, list.Name, route{page: "playlist", id: list.ID}))
-			}
-			return core.View{Style: core.Style{Gap: 2}, Children: items}
-		})}},
-		core.View{Style: core.Style{Gap: 3}, Children: []core.Node{
-			m.navTo(cx, lucide.Store, i18n.T("Plugin Market"), route{page: "plugin-market"}),
-			m.navTo(cx, lucide.Settings, i18n.T("Settings"), route{page: "settings"}),
-		}},
-	}}
-}
-
-func (m *model) sectionTitle(cx *core.Scope, title string) core.Node {
-	t := label(title, 11, core.FontWeightBold, colors(cx).muted)
-	t.Style.Padding = core.Symmetric(4, 10)
-	return t
-}
-
-func (m *model) navTo(cx *core.Scope, icon glyph, text string, target route) core.Node {
-	return m.nav(cx, icon, text, "nav-"+target.page+target.id, true, func() { m.navigate(target) }, func() bool { return m.page.Get() == target })
-}
-
-func (m *model) nav(cx *core.Scope, icon glyph, text, id string, selectable bool, action func(), selected ...func() bool) core.Node {
-	p := colors(cx)
-	isSelected := func() bool { return selectable && len(selected) > 0 && selected[0]() }
-	t := label(text, 13, core.FontWeightMedium, p.text)
-	t.MaxLines = 1
-	return base.Button{OnPress: func(core.PressEvent) { action() }, Label: text, TestID: id, Selected: isSelected,
-		Style: core.Style{Direction: core.Row, Height: core.Pt(34), AlignItems: core.AlignCenter, Gap: 10, Padding: core.Symmetric(0, 10), CornerRadius: 7,
-			Hover: &core.Style{Background: p.hover}},
+func circleIconButton(p palette, icon glyph, name, id string, size, iconSize core.Points, bordered bool, active func() bool, action func()) core.Node {
+	style := core.Style{
+		Width: core.Pt(size), Height: core.Pt(size), CornerRadius: size / 2,
+		Background: p.sidebar, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+		Hover: &core.Style{Background: p.hover},
+	}
+	if bordered {
+		style.BorderWidth = 1
+		style.BorderColor = p.barLine
+	}
+	tint := func() core.Color {
+		if active != nil && active() {
+			return p.text
+		}
+		return p.muted
+	}
+	return base.Button{
+		OnPress: func(core.PressEvent) { action() },
+		Label:   name,
+		TestID:  id,
+		Style:   style,
 		StyleFunc: func() core.Style {
-			if isSelected() {
+			if active != nil && active() {
 				return core.Style{Background: p.selected}
 			}
 			return core.Style{}
 		},
-		Children: []core.Node{ui.Icon(icon, 16, func() core.Color { return p.accent }), t},
+		Children: []core.Node{ui.Icon(icon, iconSize, tint)},
 	}
+}
+
+func (m *model) topNav(cx *core.Scope, openSearch func()) core.Node {
+	p := colors(cx)
+	navCircle := func(icon glyph, name, id string, disabled func() bool, action func()) core.Node {
+		return base.Button{
+			OnPress:  func(core.PressEvent) { action() },
+			Label:    name,
+			TestID:   id,
+			Disabled: disabled,
+			Style: core.Style{
+				Width: core.Pt(28), Height: core.Pt(28), CornerRadius: 14,
+				Background: p.sidebar, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+				Hover: &core.Style{Background: p.hover},
+			},
+			StyleFunc: func() core.Style {
+				if disabled != nil && disabled() {
+					return core.Style{Opacity: core.Alpha(.40)}
+				}
+				return core.Style{}
+			},
+			Children: []core.Node{ui.Icon(icon, 14, func() core.Color { return p.muted })},
+		}
+	}
+	back := navCircle(lucide.ChevronLeft, i18n.T("Back"), "back", func() bool { m.history.Get(); return len(m.back) == 0 }, m.goBack)
+	forward := navCircle(lucide.ChevronRight, i18n.T("Forward"), "forward", func() bool { m.history.Get(); return len(m.forward) == 0 }, m.goForward)
+	left := row(back, forward)
+	left.Style.Gap = 4
+
+	// Ian's Daily segmented control for source switching.
+	sources := core.Dynamic(func(cx *core.Scope) core.Node {
+		items := []core.Node{
+			m.sourceSegment(cx, "Yoho Music", local.ID, "source-local"),
+		}
+		for _, plug := range m.plugins.Get() {
+			info := plug.Info()
+			items = append(items, m.sourceSegment(cx, info.Name, info.ID, "source-"+info.ID))
+		}
+		seg := row(items...)
+		seg.Style.Gap = 2
+		seg.Style.Padding = core.All(3)
+		seg.Style.CornerRadius = 9999
+		seg.Style.Background = p.sidebar
+		seg.Style.BorderWidth = 1
+		seg.Style.BorderColor = p.barLine
+		return seg
+	})
+
+	search := core.Show{When: func() bool { return m.page.Get().page != "plugin-market" }, Then: func(*core.Scope) core.Node {
+		shortcut := core.Text{Content: "⌘K", Style: core.Style{FontSize: 12, FontWeight: core.FontWeightMedium, Color: p.muted}}
+		return base.Button{
+			OnPress: func(core.PressEvent) { openSearch() },
+			Label:   i18n.T("Search"),
+			TestID:  "search-trigger",
+			Style: core.Style{
+				Direction: core.Row, Height: core.Pt(32), AlignItems: core.AlignCenter, Gap: 6,
+				Padding: core.Symmetric(0, 12), CornerRadius: 16,
+				Background: p.sidebar, BorderWidth: 1, BorderColor: p.barLine,
+				Hover: &core.Style{Background: p.hover},
+			},
+			Children: []core.Node{ui.Icon(lucide.Search, 13, func() core.Color { return p.muted }), shortcut},
+		}
+	}}
+	market := circleIconButton(p, lucide.Store, i18n.T("Plugin Market"), "nav-plugin-market", 32, 14, true,
+		func() bool { return m.page.Get().page == "plugin-market" },
+		func() { m.navigate(route{page: "plugin-market"}) })
+	settings := circleIconButton(p, lucide.Settings, i18n.T("Settings"), "settings", 32, 14, true,
+		func() bool { return m.page.Get().page == "settings" },
+		func() { m.navigate(route{page: "settings"}) })
+	right := row(search, market, settings)
+	right.Style.Gap = 8
+
+	bar := row(left, spacer(), sources, spacer(), right)
+	bar.Style.Padding = core.Edges{Left: 88, Right: 20}
+	bar.Style.Height = core.Pt(52)
+	bar.Desktop.WindowDrag = core.WindowDragOn
+	return bar
+}
+
+func (m *model) sourceSegment(cx *core.Scope, text, sourceID, id string) core.Node {
+	p := colors(cx)
+	isSelected := func() bool {
+		page := m.page.Get().page
+		return m.source.Get() == sourceID && page != "settings" && page != "plugin-market"
+	}
+	t := core.Text{Content: text, MaxLines: 1,
+		Style: core.Style{FontSize: 12, FontWeight: core.FontWeightMedium, Color: p.muted},
+		StyleFunc: func() core.Style {
+			if isSelected() {
+				return core.Style{Color: p.text}
+			}
+			return core.Style{}
+		},
+	}
+	return base.Button{
+		OnPress:  func(core.PressEvent) { m.selectSource(sourceID) },
+		Label:    text,
+		TestID:   id,
+		Selected: isSelected,
+		Style: core.Style{
+			Direction: core.Row, Height: core.Pt(26), AlignItems: core.AlignCenter,
+			Padding: core.Symmetric(0, 14), CornerRadius: 13,
+			Hover: &core.Style{Background: p.hover},
+		},
+		StyleFunc: func() core.Style {
+			if isSelected() {
+				return core.Style{Background: p.background, ShadowColor: core.RGBA(0x000000, .08), ShadowOffset: core.Point{Y: 1}, ShadowRadius: 2}
+			}
+			return core.Style{}
+		},
+		Children: []core.Node{t},
+	}
+}
+
+func (m *model) subNav(cx *core.Scope) core.Node {
+	p := colors(cx)
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		r := m.page.Get()
+		sourceID := m.source.Get()
+		if sourceID == local.ID {
+			if !isLocalCategoryPage(r.page) {
+				return nil
+			}
+			items := []core.Node{
+				m.subNavTo(cx, i18n.T("Home"), route{page: "home"}),
+				m.subNavTo(cx, i18n.T("Songs"), route{page: "songs"}),
+				m.subNavTo(cx, i18n.T("Albums"), route{page: "albums"}),
+				m.subNavTo(cx, i18n.T("Artists"), route{page: "artists"}),
+				m.subNavTo(cx, i18n.T("Liked Songs"), route{page: "liked"}),
+				m.subNavTo(cx, i18n.T("Playlists"), route{page: "playlists"}),
+			}
+			return subNavBar(p, items, nil)
+		}
+		src := m.activeSource()
+		if src == nil {
+			return nil
+		}
+		entries := pluginNavEntries(src)
+		if !isPluginCategoryPage(r, entries) {
+			return nil
+		}
+		items := make([]core.Node, 0, len(entries))
+		for _, entry := range entries {
+			items = append(items, m.subNavTo(cx, entry.title, entry.target))
+		}
+		return subNavBar(p, items, m.pluginAccountControls(cx, src))
+	})
+}
+
+func isLocalCategoryPage(page string) bool {
+	switch page {
+	case "home", "songs", "albums", "artists", "liked", "playlists":
+		return true
+	}
+	return false
+}
+
+func subNavBar(p palette, items []core.Node, trailing core.Node) core.Node {
+	_ = p
+	tabs := row(items...)
+	tabs.Style.Gap = 6
+	scroll := core.Scroll{Horizontal: true, HideIndicator: true, Style: fill, Children: []core.Node{tabs}}
+	children := []core.Node{scroll}
+	if trailing != nil {
+		children = append(children, trailing)
+	}
+	bar := row(children...)
+	bar.Style.Padding = core.Edges{Top: 18, Right: 28, Bottom: 8, Left: 28}
+	bar.Style.Gap = 12
+	return paperWrap(bar)
+}
+
+func (m *model) subNavTo(cx *core.Scope, text string, target route) core.Node {
+	return m.subNavChip(cx, text, "nav-"+target.page+target.id, true, func() { m.navigate(target) }, func() bool { return m.page.Get() == target })
+}
+
+func (m *model) subNavChip(cx *core.Scope, text, id string, selectable bool, action func(), selected ...func() bool) core.Node {
+	p := colors(cx)
+	isSelected := func() bool { return selectable && len(selected) > 0 && selected[0]() }
+	t := core.Text{Content: text, MaxLines: 1,
+		Style: core.Style{FontSize: 13, FontWeight: core.FontWeightNormal, Color: p.text},
+		StyleFunc: func() core.Style {
+			if isSelected() {
+				return core.Style{Color: p.onButton, FontWeight: core.FontWeightMedium}
+			}
+			return core.Style{}
+		},
+	}
+	return base.Button{
+		OnPress:  func(core.PressEvent) { action() },
+		Label:    text,
+		TestID:   id,
+		Selected: isSelected,
+		Style: core.Style{
+			Direction: core.Row, Height: core.Pt(28), AlignItems: core.AlignCenter,
+			Padding: core.Symmetric(0, 10), CornerRadius: 0, Background: p.chip,
+			Hover: &core.Style{Background: p.line},
+		},
+		StyleFunc: func() core.Style {
+			if isSelected() {
+				return core.Style{Background: p.button, CornerRadius: 2}
+			}
+			return core.Style{}
+		},
+		Children: []core.Node{t},
+	}
+}
+
+func (m *model) searchOverlay(cx *core.Scope, searchRef *core.Ref) core.Node {
+	return core.Show{When: m.searchOpen.Get, Then: func(cx *core.Scope) core.Node {
+		p := colors(cx)
+		closeModal := func() { m.searchOpen.Set(false) }
+		input := ui.Input{
+			Ref:         searchRef,
+			Value:       m.query.Get,
+			OnChange:    m.query.Set,
+			OnSubmit:    func(q string) { m.searchOpen.Set(false); m.search(q) },
+			Placeholder: i18n.T("Search"),
+			TestID:      "search",
+			Style:       fill,
+		}
+		card := core.View{
+			Style: core.Style{
+				Width: core.Pt(440), MaxWidth: core.Pct(90),
+				Background: p.background, CornerRadius: 2,
+				BorderWidth: 1, BorderColor: p.line,
+				Padding: core.Symmetric(10, 14),
+				ShadowColor: core.RGBA(0x000000, .20), ShadowOffset: core.Point{Y: 12}, ShadowRadius: 24,
+			},
+			Children: []core.Node{row(ui.Icon(lucide.Search, 15, func() core.Color { return p.muted }), input,
+				iconButton(lucide.X, i18n.T("Close"), "search-close", closeModal))},
+		}
+		backdrop := base.Button{
+			Label:   i18n.T("Close"),
+			TestID:  "search-backdrop",
+			OnPress: func(core.PressEvent) { closeModal() },
+			Style:   core.Style{Position: core.Absolute, Top: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0), Left: core.Pt(0), Background: core.RGBA(0x000000, .30)},
+		}
+		return core.View{
+			Style: core.Style{
+				Position: core.Absolute, Top: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0), Left: core.Pt(0),
+				AlignItems: core.AlignCenter, Padding: core.Edges{Top: 84},
+			},
+			Children: []core.Node{backdrop, card},
+		}
+	}}
 }
 
 func (m *model) pickMusic(cx *core.Scope) {

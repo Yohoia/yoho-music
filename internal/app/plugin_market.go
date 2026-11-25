@@ -192,7 +192,7 @@ func (m *model) pluginMarket(cx *core.Scope, searchRef *core.Ref) core.Node {
 	})
 	return core.View{TestID: "plugin-market", Style: fill,
 		OnLayout: func(bounds core.Bounds) {
-			columns := bounds.Size.Width >= 748
+			columns := bounds.Size.Width >= 960
 			if columns != wide.GetUntracked() {
 				wide.Set(columns)
 			}

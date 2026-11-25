@@ -110,10 +110,21 @@ async function request(path, parameters, { cookies, desktop = false, codes = [20
   return { body: reply, cookies: sessionCookies(...response.headers.getSetCookie(), reply.cookie) };
 }
 
+export async function publicAPI(path, fields = {}) {
+  return query(path, fields);
+}
+
 export async function api(path, fields = {}, post = false) {
+  return query(path, fields, { authenticated: true, desktop: post || desktopRoutes.has(path) });
+}
+
+async function query(path, fields, { authenticated = false, desktop = false } = {}) {
+  const active = generation;
   const cookies = await storedCookies();
-  if (!cookies.MUSIC_U) throw signInRequired();
-  return (await request(path, fields, { cookies, desktop: post || desktopRoutes.has(path) })).body;
+  if (active !== generation || (authenticated && !cookies.MUSIC_U)) throw signInRequired();
+  const { body } = await request(path, fields, { cookies, desktop });
+  if (active !== generation || cookies !== await storedCookies()) throw signInRequired();
+  return body;
 }
 
 export function mediaURL(raw) {

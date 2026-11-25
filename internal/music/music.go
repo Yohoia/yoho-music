@@ -179,9 +179,10 @@ type Comment struct {
 
 // CommentPage is a page of a track's comments.
 type CommentPage struct {
-	Comments []Comment `json:"comments,omitempty"`
-	Total    int       `json:"total,omitempty"` // of all pages, if the source knows
-	More     bool      `json:"more,omitempty"`
+	Comments    []Comment `json:"comments,omitempty"`
+	HotComments []Comment `json:"hotComments,omitempty"` // optional, separate from the paginated comments
+	Total       int       `json:"total,omitempty"`       // of all pages, if the source knows
+	More        bool      `json:"more,omitempty"`
 }
 
 // Browse is a page a source makes up itself, of sections it chooses: what its

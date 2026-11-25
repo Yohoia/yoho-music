@@ -4,6 +4,7 @@ import (
 	"time"
 	"yoho-music/internal/i18n"
 
+	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
 	"github.com/nsgo-dev/nsgo/ui"
@@ -121,23 +122,126 @@ func (m *model) trackInfo(cx *core.Scope, size core.Points) core.Node {
 	})
 }
 
+func (m *model) pillTrackInfo(cx *core.Scope) core.Node {
+	p := colors(cx)
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		state := m.playing.Get()
+		title, detail, cover := i18n.T("Not Playing"), "", ""
+		var source string
+		if state.track != nil {
+			source = state.track.Source
+			title, detail, cover = state.track.Name, state.track.ArtistNames(), state.track.Album.ImageURL
+			if state.loading {
+				detail = i18n.T("Loading…")
+			}
+			if state.err != "" {
+				detail = state.err
+			}
+		}
+		name := label(title, 13, core.FontWeightMedium, p.text)
+		name.MaxLines = 1
+		name.TestID = "current-track"
+		meta := label(detail, 11, core.FontWeightNormal, p.muted)
+		meta.MaxLines = 1
+		art := m.circleArtwork(cx, cover, 36, source)
+		return row(art, core.View{Style: fill, Children: []core.Node{name, meta}})
+	})
+}
+
+func (m *model) pillTransport(cx *core.Scope) core.Node {
+	p := colors(cx)
+	noTrack := func() bool { return m.playing.Get().track == nil }
+	play := base.Button{
+		OnPress:  func(core.PressEvent) { m.playback(m.player.TogglePlay)() },
+		Label:    i18n.T("Play/Pause"),
+		TestID:   "play-toggle",
+		Disabled: noTrack,
+		Style: core.Style{
+			Width: core.Pt(34), Height: core.Pt(34), CornerRadius: 17,
+			Background: p.button, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+		},
+		StyleFunc: func() core.Style {
+			if noTrack() {
+				return core.Style{Opacity: core.Alpha(.45)}
+			}
+			return core.Style{}
+		},
+		Children: []core.Node{ui.Icon(func() *core.SVG {
+			if m.playing.Get().playing {
+				return lucide.Pause()
+			}
+			return lucide.Play()
+		}, 15, func() core.Color { return p.onButton })},
+	}
+	previous := iconButton(lucide.SkipBack, i18n.T("Previous"), "previous", m.playback(m.player.Prev))
+	previous.Size, previous.IconSize = 28, 14
+	next := iconButton(lucide.SkipForward, i18n.T("Next"), "next", m.playback(m.player.Next))
+	next.Size, next.IconSize = 28, 14
+	previous.Disabled, next.Disabled = noTrack, noTrack
+	shuffle := iconButton(lucide.Shuffle, i18n.T("Shuffle"), "shuffle", m.playback(m.player.ToggleShuffle))
+	shuffle.Size, shuffle.IconSize = 28, 13
+	shuffle.Tint = func() core.Color {
+		if m.playing.Get().shuffle {
+			return p.text
+		}
+		return p.muted
+	}
+	repeat := iconButton(func() *core.SVG {
+		if m.playing.Get().repeat == player.RepeatOne {
+			return lucide.Repeat1()
+		}
+		return lucide.Repeat()
+	}, i18n.T("Repeat"), "repeat", m.playback(m.player.CycleRepeat))
+	repeat.Size, repeat.IconSize = 28, 13
+	repeat.Tint = func() core.Color {
+		if m.playing.Get().repeat != player.RepeatOff {
+			return p.text
+		}
+		return p.muted
+	}
+	controls := row(shuffle, previous, play, next, repeat)
+	controls.Style.Gap = 2
+	return controls
+}
+
 func (m *model) playerBar(cx *core.Scope) core.Node {
 	p := colors(cx)
-	left := core.View{Style: core.Style{Width: core.Pt(174), FlexShrink: 1}, Children: []core.Node{m.trackInfo(cx, 42)}}
-	center := core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, AlignItems: core.AlignCenter}, Children: []core.Node{m.transport(cx, true),
-		core.View{Style: core.Style{AlignSelf: core.AlignStretch}, Children: []core.Node{m.progress(cx)}},
-	}}
+	left := core.View{Style: core.Style{Width: core.Pt(196), FlexShrink: 1}, Children: []core.Node{m.pillTrackInfo(cx)}}
+	center := core.View{Style: fill, Children: []core.Node{m.progress(cx)}}
 	volume := ui.Slider{Label: i18n.T("Volume"), TestID: "volume", Max: 1, Value: func() float64 { return m.prefs.Get().Volume },
-		OnChange: m.setVolume, Style: core.Style{Width: core.Pt(62)}}
-	right := row(m.remoteDevicePicker(cx), ui.Icon(lucide.Volume2, 16, func() core.Color { return p.muted }), volume,
-		iconButton(lucide.ListMusic, i18n.T("Queue"), "queue", func() { m.toggleStage("queue") }),
-		iconButton(lucide.Maximize2, i18n.T("Now Playing"), "now-playing", m.openPlaybackPage))
-	right.Style.Gap = 2
-	bar := row(left, center, right)
-	bar.Style.Height = core.Pt(77)
-	bar.Style.Padding = core.Symmetric(8, 16)
-	bar.Style.Gap = 12
-	return core.View{Children: []core.Node{core.View{Style: core.Style{Height: core.Pt(1), Background: p.line}}, bar}}
+		OnChange: m.setVolume, Style: core.Style{Width: core.Pt(56)}}
+	queueBtn := iconButton(lucide.ListMusic, i18n.T("Queue"), "queue", func() { m.toggleStage("queue") })
+	queueBtn.Size, queueBtn.IconSize = 28, 15
+	expandBtn := iconButton(lucide.Maximize2, i18n.T("Now Playing"), "now-playing", m.openPlaybackPage)
+	expandBtn.Size, expandBtn.IconSize = 28, 14
+	right := row(m.remoteDevicePicker(cx), ui.Icon(lucide.Volume2, 15, func() core.Color { return p.muted }), volume, queueBtn, expandBtn)
+	right.Style.Gap = 4
+
+	pill := row(left, m.pillTransport(cx), center, right)
+	pill.Style.Width = core.Pct(100)
+	pill.Style.MaxWidth = core.Pt(940)
+	pill.Style.Height = core.Pt(56)
+	pill.Style.CornerRadius = 28
+	pill.Style.Background = p.bar
+	pill.Style.BorderWidth = 1
+	pill.Style.BorderColor = p.barLine
+	pill.Style.Padding = core.Symmetric(0, 14)
+	pill.Style.Gap = 12
+	shadowAlpha := float32(.10)
+	if cx.Dark() {
+		shadowAlpha = .42
+	}
+	pill.Style.ShadowColor = core.RGBA(0x000000, shadowAlpha)
+	pill.Style.ShadowOffset = core.Point{Y: 8}
+	pill.Style.ShadowRadius = 20
+
+	return core.View{
+		Style: core.Style{
+			Padding: core.Edges{Top: 6, Right: 24, Bottom: 16, Left: 24},
+			AlignItems: core.AlignCenter,
+		},
+		Children: []core.Node{pill},
+	}
 }
 
 func (m *model) miniPlayer(cx *core.Scope) core.Node {

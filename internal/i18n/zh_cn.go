@@ -68,6 +68,8 @@ var zhCN = map[string]string{
 	"Close":                           "关闭",
 	"Clear Search":                    "清除搜索",
 	"Comments":                        "评论",
+	"Hot Comments":                    "热门评论",
+	"Latest Comments":                 "最新评论",
 	"Control playback from the notch": "刘海里也能控制播放",
 	"Control playback from the top of the screen": "屏幕顶部也能控制播放",
 	"Controls":               "控制",

@@ -33,6 +33,8 @@ func TestNetEaseQRLoginAndMedia(t *testing.T) {
 
 	const cookie = "MUSIC_U=test-session; __csrf=test-csrf"
 	var polls atomic.Int32
+	var discoveryRequests atomic.Int32
+	var radioRequests atomic.Int32
 	provider := func(req *http.Request) (*http.Response, error) {
 		if req.URL.Host != "music.163.com" && req.URL.Host != "interfacepc.music.163.com" {
 			return nil, errors.New("session left the NetEase API")
@@ -75,6 +77,86 @@ func TestNetEaseQRLoginAndMedia(t *testing.T) {
 				return nil, errors.New("incorrect authenticated search parameters")
 			}
 			body = `{"code":200,"result":{"songCount":80,"songs":[{"id":42,"name":"Fixture track","dt":12000,"ar":[{"id":5,"name":"Artist"}],"al":{"id":6,"name":"Album","picUrl":"http://p1.music.126.net/art.jpg"}}]}}`
+		case "/eapi/v3/song/detail":
+			if fields["c"] != `[{"id":"42"}]` {
+				return nil, errors.New("incorrect track details batch")
+			}
+			body = `{"code":200,"songs":[{"id":42,"name":"Fixture track","dt":12000,"ar":[{"id":5,"name":"Artist"}],"al":{"id":6,"name":"Album","publishTime":1704038400000}}],"privileges":[{"id":42,"st":0}]}`
+		case "/api/personalized/playlist":
+			if params.Get("limit") != "24" {
+				return nil, errors.New("incorrect public recommendations limit")
+			}
+			body = `{"code":200,"result":[{"id":88,"name":"Public mix"}]}`
+			if discoveryRequests.Add(1) == 1 {
+				body = `{"code":500}`
+			}
+		case "/api/v1/play/record":
+			if params.Get("uid") != "123" {
+				return nil, errors.New("listening ranks must use the signed-in account")
+			}
+			switch params.Get("type") {
+			case "1":
+				body = `{"code":200,"weekData":[{"song":{"id":42}},{"song":{"id":43}}]}`
+			case "0":
+				body = `{"code":200,"allData":[{"song":{"id":43}},{"song":{"id":42}}]}`
+			default:
+				return nil, errors.New("invalid listening rank period")
+			}
+		case "/api/v3/discovery/recommend/songs":
+			body = `{"code":200,"data":{"dailySongs":[{"id":42}]}}`
+		case "/api/v1/discovery/recommend/resource":
+			body = `{"code":200,"recommend":[{"id":99,"name":"Private mix"}]}`
+		case "/api/toplist/detail":
+			body = `{"code":200,"list":[{"id":82,"name":"Chart"}]}`
+		case "/api/v1/cloud/get":
+			switch params.Get("offset") {
+			case "0":
+				body = `{"code":200,"hasMore":true,"data":[{"songId":89,"songName":"Cloud title","simpleSong":{"id":90,"name":"Catalog title"}}]}`
+			case "1":
+				body = `{"code":200,"hasMore":false,"data":[{"songId":91,"songName":"Second cloud song"}]}`
+			default:
+				return nil, errors.New("cloud pagination did not advance by the returned row count")
+			}
+		case "/api/v6/playlist/detail":
+			switch params.Get("id") {
+			case "3136952023":
+				if req.Header.Get("Cookie") != cookie {
+					return nil, errors.New("private radar was requested as a guest")
+				}
+				body = `{"code":200,"playlist":{"id":3136952023,"trackIds":[{"id":42}]}}`
+			case "88":
+				body = `{"code":200,"playlist":{"id":88,"trackIds":[{"id":42}],"tracks":[{"id":42}]}}`
+			default:
+				return nil, errors.New("unexpected playlist ID")
+			}
+		case "/eapi/v1/radio/get":
+			mode := []string{"DEFAULT", "FAMILIAR", "EXPLORE", "EXPLORE"}
+			index := int(radioRequests.Add(1)) - 1
+			if index >= len(mode) || fields["mode"] != mode[index] || fields["limit"] != float64(3) {
+				return nil, errors.New("incorrect NetEase roaming request")
+			}
+			body = `{"code":200,"data":[{"id":42}]}`
+			if index == len(mode)-1 {
+				body = `{"code":200,"data":[]}`
+			}
+		case "/api/user/setting":
+			body = `{"code":200,"setting":{"personalServiceSetting":2}}`
+		case "/api/djradio/v2/get":
+			body = `{"code":200,"data":{"id":70,"name":"Podcast"}}`
+		case "/api/djradio/get/subed":
+			body = `{"code":200,"hasMore":true,"djRadios":[{"id":70,"name":"Podcast"}]}`
+			if params.Get("offset") == "0" && params.Get("limit") == "200" {
+				body = `{"code":200,"hasMore":false,"djRadios":[{"id":70,"name":"Podcast"},{"id":73,"name":"Second podcast"}]}`
+			}
+		case "/api/dj/program/byradio":
+			body = `{"code":200,"more":true,"programs":[{"id":71,"name":"Unavailable episode","createTime":1704067200000},{"id":72,"name":"Playable episode","mainSong":{"id":42}}]}`
+		case "/api/v1/resource/comments/A_DJ_1_71":
+			body = `{"code":200,"comments":[{"commentId":9,"content":"Newest"}],"total":2,"more":true}`
+		case "/api/v1/resource/hotcomments/A_DJ_1_71":
+			if params.Get("rid") != "71" {
+				return nil, errors.New("podcast comments must use the program ID")
+			}
+			body = `{"code":200,"hotComments":[{"commentId":9,"likedCount":3},{"commentId":7,"likedCount":8,"beReplied":[{"user":{"nickname":"Listener"},"content":"Quoted"}]}]}`
 		case "/eapi/song/enhance/player/url/v1":
 			switch fields["ids"] {
 			case "[42]":
@@ -131,6 +213,25 @@ func TestNetEaseQRLoginAndMedia(t *testing.T) {
 			results <- fmt.Errorf("before sign-in, search returned %v", err)
 			return
 		}
+		home, err := source.Home()
+		if err != nil || home == nil || len(home.Sections) != 5 || home.Sections[3].MorePage != "discovery" {
+			results <- fmt.Errorf("guest home should retain navigation when public recommendations fail: %v, %v", home, err)
+			return
+		}
+		recommendations, err := source.Browse("discovery")
+		if err != nil || recommendations == nil || len(recommendations.Sections) != 1 || len(recommendations.Sections[0].Playlists) != 1 ||
+			recommendations.Sections[0].Playlists[0].ID != "88" {
+			results <- fmt.Errorf("guest recommendations did not recover: %v, %v", recommendations, err)
+			return
+		}
+		if _, err := source.Playlist("88"); err != nil {
+			results <- fmt.Errorf("guest could not open a public recommendation: %w", err)
+			return
+		}
+		if _, err := source.Browse("radar"); !errors.Is(err, music.ErrSignIn) {
+			results <- fmt.Errorf("private radar should require sign-in: %v", err)
+			return
+		}
 		results <- nil
 	}()
 	wait()
@@ -183,7 +284,8 @@ func TestNetEaseQRLoginAndMedia(t *testing.T) {
 		}
 		search, err := source.Search("Yoho test", music.SearchTracks, 30)
 		if err != nil || search == nil || !search.More || len(search.Tracks) != 1 ||
-			search.Tracks[0].Source != plugin.NetEaseSourceID || search.Tracks[0].Album.ImageURL != "https://p1.music.126.net/art.jpg" {
+			search.Tracks[0].Source != plugin.NetEaseSourceID || search.Tracks[0].Album.ImageURL != "https://p1.music.126.net/art.jpg" ||
+			search.Tracks[0].Album.Released != "2024-01-01" {
 			results <- fmt.Errorf("unexpected NetEase search result: %v, %v", search, err)
 			return
 		}
@@ -206,7 +308,7 @@ func TestNetEaseQRLoginAndMedia(t *testing.T) {
 			results <- fmt.Errorf("unexpected playlist: %v, %v", list, err)
 			return
 		}
-		results <- nil
+		results <- checkNetEaseDiscovery(source)
 	}()
 	wait()
 
@@ -241,6 +343,67 @@ func TestNetEaseQRLoginAndMedia(t *testing.T) {
 		results <- nil
 	}()
 	wait()
+}
+
+func checkNetEaseDiscovery(source music.Source) error {
+	for _, sample := range []struct {
+		page, first string
+	}{
+		{"record:week", "42"}, {"record:all", "43"}, {"daily", "42"}, {"radar", "42"},
+	} {
+		page, err := source.Browse(sample.page)
+		if err != nil || page == nil || len(page.Sections) != 1 || len(page.Sections[0].Tracks) == 0 ||
+			page.Sections[0].Tracks[0].ID != sample.first {
+			return fmt.Errorf("unexpected %s page: %v, %v", sample.page, page, err)
+		}
+	}
+	personalized, err := source.Browse("recommendations")
+	if err != nil || personalized == nil || len(personalized.Sections) != 1 ||
+		len(personalized.Sections[0].Playlists) != 1 || personalized.Sections[0].Playlists[0].ID != "99" {
+		return fmt.Errorf("unexpected personalized recommendations: %v, %v", personalized, err)
+	}
+	charts, err := source.Browse("charts")
+	if err != nil || charts == nil || len(charts.Sections) != 1 || len(charts.Sections[0].Playlists) != 1 {
+		return fmt.Errorf("unexpected charts: %v, %v", charts, err)
+	}
+	cloud, err := source.Browse("cloud:0")
+	if err != nil || cloud == nil || len(cloud.Sections) != 1 || len(cloud.Sections[0].Tracks) != 1 ||
+		cloud.Sections[0].Tracks[0].ID != "89" || len(cloud.Sections[0].Links) != 1 {
+		return fmt.Errorf("unexpected first cloud page: %v, %v", cloud, err)
+	}
+	cloud, err = source.Browse(cloud.Sections[0].Links[0].Page)
+	if err != nil || cloud == nil || len(cloud.Sections) != 1 || len(cloud.Sections[0].Tracks) != 1 ||
+		cloud.Sections[0].Tracks[0].ID != "91" || len(cloud.Sections[0].Links) != 0 {
+		return fmt.Errorf("unexpected second cloud page: %v, %v", cloud, err)
+	}
+	stations, err := source.Stations()
+	if err != nil || len(stations) != 3 {
+		return fmt.Errorf("unexpected NetEase stations: %v, %v", stations, err)
+	}
+	for _, station := range stations {
+		tracks, err := source.StationNext(station.ID)
+		if err != nil || len(tracks) != 1 || tracks[0].ID != "42" {
+			return fmt.Errorf("unexpected %s station tracks: %v, %v", station.ID, tracks, err)
+		}
+	}
+	if _, err := source.StationNext("EXPLORE"); !errors.Is(err, music.ErrUnavailable) || !strings.Contains(err.Error(), "个性化服务") {
+		return fmt.Errorf("empty station should explain disabled personalization: %v", err)
+	}
+	shows, err := source.Shows()
+	if err != nil || len(shows) != 2 || shows[1].ID != "73" || !shows[1].Subscribed {
+		return fmt.Errorf("failed to recover from repeated subscription pages: %v, %v", shows, err)
+	}
+	show, err := source.Show("70", 0)
+	if err != nil || show == nil || len(show.Episodes) != 2 || !show.More || !show.Episodes[0].Unavailable ||
+		show.Episodes[0].Published != "2024-01-01" || show.Episodes[1].ID != "episode:42:72" {
+		return fmt.Errorf("unexpected NetEase podcast page: %v, %v", show, err)
+	}
+	comments, err := source.Comments(show.Episodes[0].ID, 0)
+	if err != nil || comments == nil || len(comments.HotComments) != 2 || len(comments.Comments) != 1 ||
+		comments.HotComments[0].ID != "7" || !strings.Contains(comments.HotComments[0].Text, "Quoted") || !comments.More {
+		return fmt.Errorf("unexpected NetEase podcast comments: %v, %v", comments, err)
+	}
+	return nil
 }
 
 // Read the provider's request format to check the payload, instead of accepting

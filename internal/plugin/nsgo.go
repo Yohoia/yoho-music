@@ -79,6 +79,23 @@ func LoadNSGo(cx *core.Scope, verified *NSGoPackage) (*NSGoSource, error) {
 		rt.Close()
 		return nil, errors.New("an NSGo music plugin must export search and stream")
 	}
+	if s.Can("navigation") {
+		// Navigation is synchronous metadata, like the list of exports.
+		var navigation []music.NavItem
+		rt.Call("navigation", nil, func(value any, err error) {
+			if err != nil {
+				return
+			}
+			data, err := json.Marshal(value)
+			if err == nil {
+				var items []music.NavItem
+				if json.Unmarshal(data, &items) == nil {
+					navigation = items
+				}
+			}
+		})
+		s.info.Navigation = navigation
+	}
 	s.runtime = rt
 	s.ctx, s.cancel = context.WithCancel(cx.Context())
 	return s, nil

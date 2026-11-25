@@ -12,6 +12,7 @@ import (
 	"github.com/nsgo-dev/nsgo/ui"
 	"yoho-music/internal/local"
 	"yoho-music/internal/music"
+	"yoho-music/internal/plugin"
 )
 
 type desktopItem struct {
@@ -132,17 +133,15 @@ func settingsRow(cx *core.Scope, name string, control core.Node) core.Node {
 	return setting
 }
 
-func (m *model) pluginNavigation(cx *core.Scope) core.Node {
-	src := m.activeSource()
-	if src == nil {
-		return nil
-	}
+type pluginNavEntry struct {
+	title  string
+	target route
+}
+
+func pluginNavEntries(src music.Source) []pluginNavEntry {
 	info := src.Info()
-	items := []core.Node{m.sectionTitle(cx, info.Name)}
 	names := map[string]string{"home": i18n.T("Home"), "liked": i18n.T("Liked Songs"), "shows": i18n.T("Podcasts"),
 		"stations": i18n.T("Stations"), "playlists": i18n.T("Playlists"), "recent": i18n.T("Recently Played"), "savedAlbums": i18n.T("Saved Albums")}
-	icons := map[string]glyph{"home": lucide.House, "liked": lucide.Heart, "shows": lucide.Mic, "stations": lucide.Radio,
-		"playlists": lucide.ListMusic, "recent": lucide.Clock, "savedAlbums": lucide.Disc3}
 	nav := info.Navigation
 	if len(nav) == 0 {
 		for _, page := range []string{"home", "liked", "playlists", "savedAlbums", "recent", "shows", "stations"} {
@@ -151,55 +150,86 @@ func (m *model) pluginNavigation(cx *core.Scope) core.Node {
 			}
 		}
 	}
+	var entries []pluginNavEntry
 	for _, item := range nav {
+		if info.ID == plugin.NetEaseSourceID {
+			if item.Page == "my-music" || item.Page == "for-you" || item.Page == "discovery" || item.Page == "charts" || item.Builtin == "stations" {
+				continue
+			}
+		}
 		title := item.Title
 		if item.Page != "" {
-			items = append(items, m.navTo(cx, lucide.LayoutGrid, title, route{page: "browse", id: item.Page}))
+			if title != "" && src.Can("browse") {
+				entries = append(entries, pluginNavEntry{title: title, target: route{page: "browse", id: item.Page}})
+			}
 			continue
 		}
-		icon := icons[item.Builtin]
-		if icon == nil || !src.Can(item.Builtin) {
+		if _, ok := names[item.Builtin]; !ok || !src.Can(item.Builtin) {
 			continue
 		}
 		if title == "" {
 			title = names[item.Builtin]
 		}
-		items = append(items, m.navTo(cx, icon, title, route{page: item.Builtin}))
+		entries = append(entries, pluginNavEntry{title: title, target: route{page: item.Builtin}})
 	}
-	items = append(items, core.Dynamic(func(cx *core.Scope) core.Node {
+	return entries
+}
+
+func isPluginCategoryPage(r route, entries []pluginNavEntry) bool {
+	if r.page == "home" {
+		return true
+	}
+	for _, entry := range entries {
+		if entry.target == r {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *model) pluginAccountControls(cx *core.Scope, src music.Source) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		p := colors(cx)
 		state := m.accountOf(src)
 		var controls []core.Node
 		if state.account != nil && state.account.Name != "" {
-			controls = append(controls, m.sectionTitle(cx, state.account.Name))
+			name := label(state.account.Name, 12, core.FontWeightNormal, p.muted)
+			name.MaxLines = 1
+			controls = append(controls, name)
 		}
 		if state.busy {
-			controls = append(controls, m.sectionTitle(cx, i18n.T("Checking account…")))
+			controls = append(controls, label(i18n.T("Checking account…"), 12, core.FontWeightNormal, p.muted))
 		} else {
 			if src.Can("signIn") && state.account == nil {
-				controls = append(controls, m.nav(cx, lucide.LogIn, i18n.T("Sign In"), "sign-in", false, func() { m.changeAccount(src, true) }))
+				controls = append(controls, m.subNavChip(cx, i18n.T("Sign In"), "sign-in", false, func() { m.changeAccount(src, true) }))
 			}
 			if src.Can("signOut") && (state.account != nil || !src.Can("account")) {
-				controls = append(controls, m.nav(cx, lucide.LogOut, i18n.T("Sign Out"), "sign-out", false, func() { m.changeAccount(src, false) }))
+				controls = append(controls, m.subNavChip(cx, i18n.T("Sign Out"), "sign-out", false, func() { m.changeAccount(src, false) }))
 			}
 		}
-		return core.Group(controls)
-	}))
-	return core.View{Style: core.Style{Gap: 2}, Children: items}
+		if len(controls) == 0 {
+			return nil
+		}
+		return row(controls...)
+	})
 }
 
 func (m *model) playStation(src music.Source, station music.Station) {
 	go func() {
 		tracks, err := src.StationNext(station.ID)
 		m.cx.Post(func() {
-			if err != nil {
-				m.report(err)
+			if !m.sourceActionResult(src, err) {
 				return
 			}
 			sourceID := src.Info().ID
 			m.player.PlayRadio(station.Name, withSource(tracks, sourceID), func(got func([]music.Track)) {
 				go func() {
 					next, err := src.StationNext(station.ID)
-					m.cx.Post(func() { m.report(err); got(withSource(next, sourceID)); m.refreshPlayback() })
+					m.cx.Post(func() {
+						m.sourceActionResult(src, err)
+						got(withSource(next, sourceID))
+						m.refreshPlayback()
+					})
 				}()
 			})
 			m.refreshPlayback()

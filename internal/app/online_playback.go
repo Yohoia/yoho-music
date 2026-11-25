@@ -34,7 +34,7 @@ func (m *model) episodePane(cx *core.Scope, track music.Track) core.Node {
 
 type trackComments struct {
 	items              []music.Comment
-	next, total        int
+	hot, next, total   int
 	loaded, more, busy bool
 	problem            string
 }
@@ -75,6 +75,7 @@ func (m *model) commentsPane(cx *core.Scope, track music.Track) core.Node {
 	}
 	load := func() {
 		run(func(next *trackComments) error {
+			first := !next.loaded && next.next == 0
 			page, err := src.Comments(track.ID, next.next)
 			if err != nil {
 				return err
@@ -83,6 +84,14 @@ func (m *model) commentsPane(cx *core.Scope, track music.Track) core.Node {
 			next.more = false
 			if page == nil {
 				return nil
+			}
+			if first {
+				for _, comment := range page.HotComments {
+					if !slices.ContainsFunc(next.items, func(existing music.Comment) bool { return existing.ID == comment.ID }) {
+						next.items = append(next.items, comment)
+					}
+				}
+				next.hot = len(next.items)
 			}
 			for _, comment := range page.Comments {
 				if !slices.ContainsFunc(next.items, func(existing music.Comment) bool { return existing.ID == comment.ID }) {
@@ -110,6 +119,14 @@ func (m *model) commentsPane(cx *core.Scope, track music.Track) core.Node {
 			items = append(items, label(i18n.T("No comments yet."), 14, core.FontWeightNormal, p.muted))
 		}
 		for i, comment := range current.items {
+			if current.hot > 0 {
+				switch i {
+				case 0:
+					items = append(items, label(i18n.T("Hot Comments"), 14, core.FontWeightMedium, p.muted))
+				case current.hot:
+					items = append(items, label(i18n.T("Latest Comments"), 14, core.FontWeightMedium, p.muted))
+				}
+			}
 			name := label(comment.Author, 13, core.FontWeightBold, p.text)
 			meta := row(m.artwork(cx, comment.AvatarURL, 28, track.Source), name, spacer())
 			if src.Can("likeComment") {
@@ -156,7 +173,7 @@ func (m *model) commentsPane(cx *core.Scope, track music.Track) core.Node {
 					return err
 				}
 				if made != nil && made.ID != "" && !slices.ContainsFunc(next.items, func(existing music.Comment) bool { return existing.ID == made.ID }) {
-					next.items = append([]music.Comment{*made}, next.items...)
+					next.items = slices.Insert(next.items, next.hot, *made)
 					next.total++
 					next.next++
 				}

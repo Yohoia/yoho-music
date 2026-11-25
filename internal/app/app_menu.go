@@ -15,7 +15,7 @@ func (m *model) appMenu(cx *core.Scope) {
 			}
 		}
 		separator := desktop.MenuItem{Separator: true}
-		desktop.SetApplicationMenu(cx, []desktop.MenuItem{
+		menus := []desktop.MenuItem{
 			{Label: "Yoho Music", Items: []desktop.MenuItem{
 				{Role: desktop.MenuAbout},
 				separator,
@@ -56,11 +56,25 @@ func (m *model) appMenu(cx *core.Scope) {
 				}},
 				{Label: i18n.T("Toggle Top Player"), OnSelect: m.toggleNotch},
 			}},
-			{Label: i18n.T("Window"), Items: []desktop.MenuItem{
-				{Role: desktop.MenuMinimize}, {Role: desktop.MenuZoom}, {Role: desktop.MenuClose},
-				separator,
-				{Label: "Yoho Music", Shortcut: "mod+0", OnSelect: focus}, {Role: desktop.MenuBringAllToFront},
-			}},
-		})
+		}
+		if source := m.activeSource(); source != nil && len(source.Info().Navigation) > 0 {
+			entries := pluginNavEntries(source)
+			items := make([]desktop.MenuItem, 0, len(entries))
+			for _, entry := range entries {
+				items = append(items, desktop.MenuItem{Label: entry.title, OnSelect: func() {
+					focus()
+					m.navigate(entry.target)
+				}})
+			}
+			if len(items) > 0 {
+				menus = append(menus, desktop.MenuItem{Label: source.Info().Name, Items: items})
+			}
+		}
+		menus = append(menus, desktop.MenuItem{Label: i18n.T("Window"), Items: []desktop.MenuItem{
+			{Role: desktop.MenuMinimize}, {Role: desktop.MenuZoom}, {Role: desktop.MenuClose},
+			separator,
+			{Label: "Yoho Music", Shortcut: "mod+0", OnSelect: focus}, {Role: desktop.MenuBringAllToFront},
+		}})
+		desktop.SetApplicationMenu(cx, menus)
 	})
 }

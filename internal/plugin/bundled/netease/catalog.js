@@ -12,9 +12,18 @@ export function idOf(value) {
 
 export function trackIdentity(value) {
   const id = String(value);
-  const episode = /^episode:([1-9]\d{0,18}):([1-9]\d{0,18})$/.exec(id);
-  return episode ? { songId: episode[1], thread: "A_DJ_1_" + episode[2] }
-    : { songId: idOf(id), thread: "R_SO_4_" + idOf(id) };
+  const episode = /^episode:([1-9]\d{0,18})?:([1-9]\d{0,18})$/.exec(id);
+  if (episode) return { songId: episode[1], resourceId: episode[2], thread: "A_DJ_1_" + episode[2] };
+  const songId = idOf(id);
+  return { songId, resourceId: songId, thread: "R_SO_4_" + songId };
+}
+
+function dateString(value) {
+  const timestamp = Number(value);
+  if (!Number.isFinite(timestamp) || timestamp === 0) return "";
+  // NetEase publishes calendar dates in China Standard Time.
+  const date = new Date(timestamp + 8 * 60 * 60 * 1000);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
 }
 
 export function artistEntry(artist = {}) {
@@ -26,7 +35,7 @@ export function albumEntry(album = {}) {
   return {
     id: String(album.id || ""), name: album.name || "", imageUrl: mediaURL(album.picUrl || album.coverImgUrl),
     artists: (artists.length ? artists : album.artist?.id ? [album.artist] : []).map(artistEntry),
-    saved: !!album.isSub,
+    released: dateString(album.publishTime), saved: !!album.isSub,
   };
 }
 
@@ -45,7 +54,7 @@ export function playlistEntry(playlist, uid = "") {
   return {
     id: idOf(playlist.id), name: playlist.name || "", imageUrl: mediaURL(playlist.coverImgUrl || playlist.picUrl),
     owner: playlist.creator?.nickname || "", description: playlist.description || "",
-    trackCount: Number(playlist.trackCount || 0), mine, fixed: mine && playlist.specialType === 5, saved: !!playlist.subscribed,
+    trackCount: Number(playlist.trackCount || 0), mine, fixed: mine && Number(playlist.specialType) === 5, saved: !!playlist.subscribed,
   };
 }
 
@@ -58,39 +67,47 @@ export function showEntry(show) {
 }
 
 export function episodeEntry(program, show) {
-  const song = program.mainSong;
-  const track = trackEntry(song);
+  const track = program.mainSong?.id ? trackEntry(program.mainSong) : { unavailable: true };
   const programId = idOf(program.id);
   return {
-    ...track, id: "episode:" + track.id + ":" + programId, name: program.name || track.name, showId: show.id,
+    ...track, id: "episode:" + (track.id || "") + ":" + programId, name: program.name || track.name || "节目 " + programId,
+    showId: show.id, duration: Number(program.duration || track.duration || 0),
     album: { name: show.name, imageUrl: mediaURL(program.coverUrl) || show.imageUrl },
-    description: program.description || "", url: origin + "/#/program?id=" + programId,
+    description: program.description || "", published: dateString(program.createTime), url: origin + "/#/program?id=" + programId,
   };
 }
 
 export function commentEntry(comment) {
+  const replies = items(comment.beReplied).filter((reply) => reply?.content)
+    .map((reply) => "回复 " + (reply.user?.nickname || "网易云用户") + "：" + reply.content);
   return {
     id: idOf(comment.commentId), author: comment.user?.nickname || "网易云用户",
-    avatarUrl: mediaURL(comment.user?.avatarUrl), text: comment.content || "",
+    avatarUrl: mediaURL(comment.user?.avatarUrl), text: [comment.content || "", ...replies].join("\n\n"),
     time: Number(comment.time || 0), likes: Number(comment.likedCount || 0), liked: !!comment.liked,
   };
 }
 
-export async function songDetails(values, originals = []) {
+export async function songDetails(values, originals = [], { request = api, refresh = false } = {}) {
   const ids = values.map(idOf);
   const found = new Map(originals.map((song) => [String(song.id), trackEntry(song)]));
-  const needed = [...new Set(ids.filter((id) => !found.has(id)))];
+  const needed = [...new Set(ids.filter((id) => refresh || !found.has(id)))];
   const batchSize = 100;
   for (let start = 0; start < needed.length; start += 4 * batchSize) {
     const group = needed.slice(start, start + 4 * batchSize);
     const requests = [];
     for (let at = 0; at < group.length; at += batchSize) {
       const c = JSON.stringify(group.slice(at, at + batchSize).map((id) => ({ id })));
-      requests.push(api("/api/v3/song/detail", { c }));
+      requests.push(request("/api/v3/song/detail", { c }));
     }
     for (const result of await Promise.all(requests)) {
       const privileges = new Map(items(result.privileges).map((value) => [String(value.id), value]));
-      for (const song of items(result.songs)) found.set(String(song.id), trackEntry(song, privileges.get(String(song.id))));
+      for (const song of items(result.songs)) {
+        const id = String(song.id);
+        const track = trackEntry(song, privileges.get(id) || song.privilege);
+        const fallback = found.get(id);
+        if (!track.album.imageUrl && fallback?.album.imageUrl) track.album.imageUrl = fallback.album.imageUrl;
+        found.set(id, track);
+      }
     }
   }
   // Keep unavailable entries in place so the host can advance by the original

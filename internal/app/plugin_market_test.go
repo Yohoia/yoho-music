@@ -2,16 +2,19 @@ package app
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/nsgotest"
+	"github.com/nsgo-dev/nsgo/tsx"
 	"yoho-music/internal/plugin"
 )
 
@@ -44,11 +47,15 @@ func TestMarketDownloadsNetEaseOnRequest(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "nsgo-plugins", "dev.yoho.music.netease.nsgopkg")
 	start := func(t *testing.T, marketURL string) *nsgotest.App {
-		return nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		root := tsx.WithFetcher(func(cx *core.Scope) core.Node {
 			m := newModel(cx, dir)
 			m.marketURL = marketURL
+			m.appMenu(cx)
 			return m.root(cx)
-		}, nsgotest.Size(1180, 780))
+		}, func(req *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"code":200,"result":[]}`)), Request: req}, nil
+		})
+		return nsgotest.Start(t, root, nsgotest.Size(1180, 780))
 	}
 	if !t.Run("browse, download and install", func(t *testing.T) {
 		app := start(t, marketURL)
@@ -80,10 +87,18 @@ func TestMarketDownloadsNetEaseOnRequest(t *testing.T) {
 	}
 	t.Run("reload from disk without the market", func(t *testing.T) {
 		app := start(t, "")
-		app.WaitFor("id:source-"+plugin.NetEaseSourceID, 5*time.Second)
+		source := "id:source-" + plugin.NetEaseSourceID
+		app.WaitFor(source, 5*time.Second)
 		if downloads.Load() != 2 {
 			t.Fatal("restarting downloaded the installed plugin again")
 		}
+		app.Press(source)
+		for _, nav := range []string{"nav-home", "nav-liked", "nav-playlists", "nav-savedAlbums", "nav-recent", "nav-shows"} {
+			app.WaitFor("id:"+nav, time.Second)
+		}
+		app.WaitFor("text:最近一周", time.Second)
+		app.WaitFor("text:私人雷达", time.Second)
+		app.WaitFor("id:station-FAMILIAR", time.Second)
 	})
 }
 
