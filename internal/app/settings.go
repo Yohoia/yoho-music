@@ -113,7 +113,7 @@ func (m *model) settingsPage(cx *core.Scope) core.Node {
 			label("Yoho Music "+core.App().Version, 12, core.FontWeightMedium, p.muted)),
 	}
 	return core.View{Style: fill, Children: []core.Node{m.pageHeader(cx, i18n.T("Settings"), "", ""),
-		core.Scroll{Style: fill, Children: []core.Node{core.View{Style: core.Style{Gap: 15, Padding: core.Edges{Top: 4, Left: 28, Right: 28, Bottom: 24}}, Children: controls}}},
+		core.Scroll{Style: fill, Children: []core.Node{core.View{Style: core.Style{Gap: 15, Padding: core.Edges{Top: 4, Left: 28, Right: 28, Bottom: 100}}, Children: controls}}},
 	}}
 }
 
@@ -187,30 +187,49 @@ func isPluginCategoryPage(r route, entries []pluginNavEntry) bool {
 	return false
 }
 
-func (m *model) pluginAccountControls(cx *core.Scope, src music.Source) core.Node {
+func (m *model) pluginAccountMenuItems(cx *core.Scope, src music.Source, closeMenu func()) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		p := colors(cx)
 		state := m.accountOf(src)
-		var controls []core.Node
+		var rows []core.Node
 		if state.account != nil && state.account.Name != "" {
 			name := label(state.account.Name, 12, core.FontWeightNormal, p.muted)
 			name.MaxLines = 1
-			controls = append(controls, name)
+			name.Style.Padding = core.Symmetric(4, 12)
+			rows = append(rows, name)
 		}
 		if state.busy {
-			controls = append(controls, label(i18n.T("Checking account…"), 12, core.FontWeightNormal, p.muted))
+			busy := label(i18n.T("Checking account…"), 12, core.FontWeightNormal, p.muted)
+			busy.Style.Padding = core.Symmetric(4, 12)
+			rows = append(rows, busy)
 		} else {
+			item := func(icon glyph, text, id string, action func()) core.Node {
+				return base.Button{
+					OnPress: func(core.PressEvent) {
+						closeMenu()
+						action()
+					},
+					Label:  text,
+					TestID: id,
+					Style: core.Style{
+						Direction: core.Row, Height: core.Pt(36), AlignItems: core.AlignCenter, Gap: 10,
+						Padding: core.Symmetric(0, 12), CornerRadius: 12,
+						Hover: &core.Style{Background: p.hover},
+					},
+					Children: []core.Node{ui.Icon(icon, 15, func() core.Color { return p.muted }), label(text, 13, core.FontWeightMedium, p.text)},
+				}
+			}
 			if src.Can("signIn") && state.account == nil {
-				controls = append(controls, m.subNavChip(cx, i18n.T("Sign In"), "sign-in", false, func() { m.changeAccount(src, true) }))
+				rows = append(rows, item(lucide.LogIn, i18n.T("Sign In"), "sign-in", func() { m.changeAccount(src, true) }))
 			}
 			if src.Can("signOut") && (state.account != nil || !src.Can("account")) {
-				controls = append(controls, m.subNavChip(cx, i18n.T("Sign Out"), "sign-out", false, func() { m.changeAccount(src, false) }))
+				rows = append(rows, item(lucide.LogOut, i18n.T("Sign Out"), "sign-out", func() { m.changeAccount(src, false) }))
 			}
 		}
-		if len(controls) == 0 {
+		if len(rows) == 0 {
 			return nil
 		}
-		return row(controls...)
+		return core.View{Style: core.Style{Gap: 2}, Children: rows}
 	})
 }
 

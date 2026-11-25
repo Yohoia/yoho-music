@@ -79,9 +79,11 @@ export function stream({id, quality}) {
 		app := start(t)
 		app.PickFiles = func(core.FilesRequest) []core.File { return []core.File{{Path: packagePath}} }
 		app.OnAlert = func(core.AlertConfig) int { return 0 }
+		app.Press("id:source-menu-trigger")
 		app.Press("id:settings")
 		app.WaitUntil(time.Second, func() bool { return app.Enabled("id:plugin-nsgo-install") })
 		app.Press("id:plugin-nsgo-install")
+		app.Press("id:source-menu-trigger")
 		app.WaitFor("id:source-"+nativeID, 5*time.Second)
 		app.Press("id:source-" + nativeID)
 		app.Press("id:search-trigger")
@@ -100,6 +102,7 @@ export function stream({id, quality}) {
 	t.Run("reload, reject redirect and remove", func(t *testing.T) {
 		app := start(t)
 		app.OnAlert = func(core.AlertConfig) int { return 0 }
+		app.Press("id:source-menu-trigger")
 		app.WaitFor("id:source-"+nativeID, 5*time.Second)
 		app.Press("id:source-" + nativeID)
 		app.Press("id:search-trigger")
@@ -119,9 +122,11 @@ export function stream({id, quality}) {
 		if forbidden.Load() {
 			t.Fatal("player followed a redirect outside the plugin's network rules")
 		}
+		app.Press("id:source-menu-trigger")
 		app.Press("id:settings")
 		app.WaitFor("id:plugin-remove-"+nativeID, time.Second)
 		app.Press("id:plugin-remove-" + nativeID)
+		app.Press("id:source-menu-trigger")
 		app.WaitForGone("id:source-"+nativeID, 5*time.Second)
 	})
 }
@@ -154,6 +159,7 @@ export function stream() { return null; }
 	}, nsgotest.Size(1180, 780))
 	app.PickFiles = func(core.FilesRequest) []core.File { return []core.File{{Path: path}} }
 	app.OnAlert = func(core.AlertConfig) int { return 0 }
+	app.Press("id:source-menu-trigger")
 	app.Press("id:nav-plugin-market")
 	app.WaitUntil(time.Second, func() bool { return app.Enabled("id:market-import") })
 	app.Press("id:market-import")
@@ -189,6 +195,7 @@ export function stream() { return null; }
 	app.WaitFor(demoSignOut, 5*time.Second)
 	app.Press("id:market-open-" + plugin.DemoSourceID)
 	app.WaitFor("id:track-0", 5*time.Second)
+	app.Press("id:source-menu-trigger")
 	app.Press("id:nav-plugin-market")
 	app.WaitUntil(5*time.Second, func() bool { return app.Enabled("id:market-sign-out-" + sourceID) })
 	fixtureCard := "id:market-card-" + sourceID

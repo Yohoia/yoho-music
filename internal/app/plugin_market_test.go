@@ -61,6 +61,7 @@ func TestMarketDownloadsNetEaseOnRequest(t *testing.T) {
 		app := start(t, marketURL)
 		button := "id:market-install-" + plugin.NetEaseSourceID
 		source := "id:source-" + plugin.NetEaseSourceID
+		app.Press("id:source-menu-trigger")
 		app.Press("id:nav-plugin-market")
 		app.WaitUntil(5*time.Second, func() bool { return app.Exists(button) && app.Enabled(button) })
 		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) || app.Exists(source) || downloads.Load() != 0 {
@@ -78,6 +79,7 @@ func TestMarketDownloadsNetEaseOnRequest(t *testing.T) {
 		}
 		app.OnAlert = func(core.AlertConfig) int { return 0 }
 		app.Press(button)
+		app.Press("id:source-menu-trigger")
 		app.WaitFor(source, 5*time.Second)
 		if _, err := os.Stat(path); err != nil || downloads.Load() != 2 {
 			t.Fatalf("the downloaded plugin was not installed: %v", err)
@@ -88,6 +90,7 @@ func TestMarketDownloadsNetEaseOnRequest(t *testing.T) {
 	t.Run("reload from disk without the market", func(t *testing.T) {
 		app := start(t, "")
 		source := "id:source-" + plugin.NetEaseSourceID
+		app.Press("id:source-menu-trigger")
 		app.WaitFor(source, 5*time.Second)
 		if downloads.Load() != 2 {
 			t.Fatal("restarting downloaded the installed plugin again")
@@ -112,6 +115,7 @@ func TestPluginMarket(t *testing.T) {
 		return m.root(cx)
 	}, nsgotest.Size(1180, 780))
 	app.OnAlert = func(core.AlertConfig) int { return 0 }
+	app.Press("id:source-menu-trigger")
 	app.Press("id:nav-plugin-market")
 	app.WaitUntil(5*time.Second, func() bool { return app.Enabled("id:market-install-demo") })
 	app.Screenshot("plugin-market")
@@ -161,6 +165,7 @@ func TestPluginMarket(t *testing.T) {
 		track := m.playing.GetUntracked().track
 		return track != nil && track.Source == id && m.player.Ready()
 	})
+	app.Press("id:source-menu-trigger")
 	app.Press("id:nav-plugin-market")
 	signOut := "id:market-sign-out-" + id
 	app.WaitUntil(5*time.Second, func() bool { return app.Exists(signOut) && app.Enabled(signOut) })

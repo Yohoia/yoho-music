@@ -60,6 +60,7 @@ type model struct {
 	page               *core.Signal[route]
 	query              *core.Signal[string]
 	searchOpen         *core.Signal[bool]
+	sourceMenuOpen     *core.Signal[bool]
 	updated            *core.Signal[int]
 	playing            *core.Signal[playbackView]
 	pos                *core.Signal[time.Duration]
@@ -99,7 +100,7 @@ func newModel(cx *core.Scope, dir string) *model {
 	}
 	m := &model{
 		cx: cx, context: cx.Context(), dir: dir, lib: local.New(dir),
-		page: core.NewSignal(cx, route{page: "home"}), query: core.NewSignal(cx, ""), searchOpen: core.NewSignal(cx, false),
+		page: core.NewSignal(cx, route{page: "home"}), query: core.NewSignal(cx, ""), searchOpen: core.NewSignal(cx, false), sourceMenuOpen: core.NewSignal(cx, false),
 		updated: core.NewSignal(cx, 0), playing: core.NewSignalFunc(cx, playbackView{}, nil),
 		pos: core.NewSignal(cx, time.Duration(0)), prefs: core.NewSignal(cx, prefs),
 		stage: core.NewSignal(cx, ""), stageCovered: core.NewSignal(cx, false), error: core.NewSignal(cx, ""), history: core.NewSignal(cx, 0),

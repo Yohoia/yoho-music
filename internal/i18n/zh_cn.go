@@ -3,6 +3,8 @@ package i18n
 // zhCN is the app's text in Simplified Chinese, by its English.
 var zhCN = map[string]string{
 	"Add to Playlist…":                        "添加到歌单…",
+	"Sources":                                 "音源",
+	"Quick Actions":                           "快捷入口",
 	"Create a playlist in this source first.": "请先在此音源中新建歌单。",
 	"No editable playlists":                   "没有可编辑的歌单",
 	"Unfollow":                                "取消关注",

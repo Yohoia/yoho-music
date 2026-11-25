@@ -123,17 +123,102 @@ func (m *model) catalogPage(cx *core.Scope, src music.Source, r route) (core.Nod
 		if m.lib.Scanning() {
 			return m.empty(cx, lucide.Folder, i18n.T("Looking for music…"), "", nil), nil
 		}
-		title := i18n.T("Add a music folder")
-		if len(m.lib.Folders()) > 0 {
-			title = i18n.T("No music found")
-		}
-		return m.empty(cx, lucide.Folder, title, "", func() { m.pickMusic(cx) }), nil
+		return m.localEmptyHome(cx), nil
 	}
 	data, err := loadCatalog(src, r)
 	if err != nil {
 		return nil, err
 	}
 	return m.displayCatalog(cx, src, data, nil), nil
+}
+
+func (m *model) localEmptyHome(cx *core.Scope) core.Node {
+	p := colors(cx)
+	title := i18n.T("Add a music folder")
+	if len(m.lib.Folders()) > 0 {
+		title = i18n.T("No music found")
+	}
+
+	// [untitled]-style pink-magenta album sleeve with a peeking disc on the right.
+	disc := core.View{
+		Style: core.Style{
+			Position: core.Absolute, Right: core.Pt(-16), Top: core.Pt(10),
+			Width: core.Pt(88), Height: core.Pt(88), CornerRadius: 44,
+			Gradients:   []core.Gradient{core.LinearGradient(135, core.RGB(0xf3d4fa), core.RGB(0x9a55d8))},
+			BorderWidth: 1, BorderColor: core.RGBA(0xffffff, .35),
+		},
+	}
+	sleeve := core.View{
+		Style: core.Style{
+			Width: core.Pt(108), Height: core.Pt(108), CornerRadius: 14,
+			Gradients:    []core.Gradient{core.LinearGradient(135, core.RGB(0xffa3ee), core.RGB(0xe544d8))},
+			ShadowColor:  core.RGBA(0xe544d8, .22),
+			ShadowOffset: core.Point{Y: 10}, ShadowRadius: 24,
+		},
+	}
+	artwork := core.View{
+		Style:    core.Style{Width: core.Pt(108), Height: core.Pt(108), Margin: core.Edges{Bottom: 8}},
+		Children: []core.Node{disc, sleeve},
+	}
+
+	addBtn := base.Button{
+		Label:   i18n.T("Add a Music Folder"),
+		TestID:  "add-folder",
+		OnPress: func(core.PressEvent) { m.pickMusic(cx) },
+		Style: core.Style{
+			Height: core.Pt(38), Padding: core.Symmetric(0, 22), CornerRadius: 19,
+			Background: p.button, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+			Margin:     core.Edges{Top: 6},
+			Transition: core.Transition{Duration: 150 * time.Millisecond, Easing: core.EaseOut},
+			Hover:      &core.Style{Opacity: core.Alpha(.88)},
+			Active:     &core.Style{Transform: core.Transform{Scale: 0.96}},
+		},
+		Children: []core.Node{label(i18n.T("Add a Music Folder"), 13, core.FontWeightSemibold, p.onButton)},
+	}
+
+	// Secondary soft-gray discovery card pointing to Plugin Market.
+	marketBtn := base.Button{
+		Label:   i18n.T("Plugin Market"),
+		OnPress: func(core.PressEvent) { m.navigate(route{page: "plugin-market"}) },
+		Style: core.Style{
+			Height: core.Pt(34), Padding: core.Symmetric(0, 18), CornerRadius: 17,
+			Background: p.hover, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+			Margin:     core.Edges{Top: 4},
+			Transition: core.Transition{Duration: 150 * time.Millisecond, Easing: core.EaseOut},
+			Hover:      &core.Style{Background: p.selected},
+			Active:     &core.Style{Transform: core.Transform{Scale: 0.96}},
+		},
+		Children: []core.Node{label(i18n.T("Plugin Market"), 12, core.FontWeightSemibold, p.text)},
+	}
+	discoverCard := core.View{
+		Style: core.Style{
+			Width: core.Pt(360), MaxWidth: core.Pct(90), CornerRadius: 18,
+			Background: p.sidebar, Padding: core.Symmetric(22, 24),
+			AlignItems: core.AlignCenter, Gap: 6, Margin: core.Edges{Top: 28},
+		},
+		Children: []core.Node{
+			label(i18n.T("Plugin Market"), 14, core.FontWeightSemibold, p.text),
+			core.Text{
+				Content: i18n.T("Browse all plugins or import a signed Yoho package."),
+				Style:   core.Style{FontSize: 12, Color: p.muted, TextAlign: core.TextAlignCenter},
+			},
+			marketBtn,
+		},
+	}
+
+	return core.View{
+		Style: core.Style{
+			FlexGrow: 1, FlexShrink: 1, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+			Gap: 6, Padding: core.All(24),
+		},
+		Children: []core.Node{
+			artwork,
+			label(title, 17, core.FontWeightSemibold, p.text),
+			label(i18n.T("Add the folders where your music lives"), 13, core.FontWeightNormal, p.muted),
+			addBtn,
+			discoverCard,
+		},
+	}
 }
 
 func loadCatalog(src music.Source, r route) (catalogData, error) {
@@ -331,7 +416,7 @@ func (m *model) pageHeader(cx *core.Scope, title, sub, image string, actions ...
 	items = append(items, core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, Gap: 4}, Children: headings})
 	items = append(items, actions...)
 	view := row(items...)
-	view.Style.Padding = core.Symmetric(14, 28)
+	view.Style.Padding = core.Symmetric(14, 0)
 	view.Style.Gap = 16
 	return paperWrap(view)
 }
@@ -407,17 +492,16 @@ func coverGradientFor(key string) core.Gradient {
 	return core.LinearGradient(135, core.RGB(pair[0]), core.RGB(pair[1]))
 }
 
-func (m *model) tileArtwork(cx *core.Scope, name, url string, size core.Points, source string) core.Node {
-	radius := size * 0.10 // [untitled] 300pt -> 30pt (10%)
+func (m *model) tileArtwork(cx *core.Scope, name, url string, source string) core.Node {
 	face := core.Style{
-		Width: core.Pt(size), Height: core.Pt(size), CornerRadius: radius,
+		Width: core.Pct(100), Height: core.Pct(100), CornerRadius: 15,
 		AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
 	}
 	if url == "" {
 		face.Gradients = []core.Gradient{coverGradientFor(name)}
 		return core.View{Style: face}
 	}
-	return core.Image{SourceFunc: m.coverSource(cx, url, int(size*2), source), Style: face, ResizeMode: core.Cover}
+	return core.Image{SourceFunc: m.coverSource(cx, url, 360, source), Style: face, ResizeMode: core.Cover}
 }
 
 func (m *model) playCollection(src music.Source, r route, shuffle bool) {
@@ -509,7 +593,7 @@ func (m *model) displayCatalog(cx *core.Scope, src music.Source, d catalogData, 
 	}
 	if d.description != "" {
 		description := label(d.description, 13, core.FontWeightNormal, colors(cx).muted)
-		description.Style.Padding = core.Edges{Left: 28, Right: 28, Bottom: 12}
+		description.Style.Padding = core.Edges{Bottom: 12}
 		descWrap := paperWrap(description)
 		if header != nil {
 			header = core.View{Children: []core.Node{header, descWrap}}
@@ -536,7 +620,20 @@ func (m *model) displayCatalog(cx *core.Scope, src music.Source, d catalogData, 
 			continue
 		}
 		if count > 0 || (i > 0 && len(body) > 0) {
-			divider := core.View{Style: core.Style{Height: core.Pt(1), Background: colors(cx).line, Margin: core.Symmetric(6, 28)}}
+			lineColor := colors(cx).line
+			divider := core.Canvas{
+				Style: core.Style{
+					Height: core.Pt(1),
+					Margin: core.Symmetric(8, 0),
+				},
+				Draw: func(d *core.Drawing, size core.Size) {
+					d.FillFromView(core.PaintColor(lineColor))
+					for x := float32(0); x < float32(size.Width); x += 8 {
+						w := min(float32(4), float32(size.Width)-x)
+						d.FillRect(x, 0, w, 1)
+					}
+				},
+			}
 			body = append(body, paperWrap(divider))
 		}
 		count += len(items)
@@ -548,7 +645,7 @@ func (m *model) displayCatalog(cx *core.Scope, src music.Source, d catalogData, 
 	if footer != nil {
 		body = append(body, paperWrap(footer))
 	}
-	return core.Scroll{Style: fill, Children: []core.Node{core.View{Style: core.Style{Gap: 16, Padding: core.Edges{Top: 10, Bottom: 24}}, Children: body}}}
+	return core.Scroll{Style: fill, Children: []core.Node{core.View{Style: core.Style{Gap: 16, Padding: core.Edges{Top: 10, Bottom: 108}}, Children: body}}}
 }
 
 func albumSubtitle(album music.Album) string {
@@ -598,7 +695,6 @@ func (m *model) section(cx *core.Scope, src music.Source, section music.Section,
 			}
 			header.Children = append(header.Children, more)
 		}
-		header.Style.Padding = core.Symmetric(0, 28)
 		items = append(items, paperWrap(header))
 	}
 	var cards []core.Node
@@ -633,7 +729,6 @@ func (m *model) section(cx *core.Scope, src music.Source, section music.Section,
 				GridTemplateColumns: core.GridTracks("repeat(5, minmax(0, 1fr))"),
 				ColumnGap:           20,
 				RowGap:              24,
-				Padding:             core.Symmetric(0, 28),
 			},
 			Children: cards,
 		}
@@ -648,14 +743,13 @@ func (m *model) section(cx *core.Scope, src music.Source, section music.Section,
 		} else {
 			var rows []core.Node
 			for i, t := range tracks {
-				rows = append(rows, m.songRow(cx, t, i, list, func() { m.player.PlayTrack(tracks, i) }))
+				rows = append(rows, m.songRow(cx, t, i, list, false, func() { m.player.PlayTrack(tracks, i) }))
 			}
 			items = append(items, core.View{Children: rows})
 		}
 	}
 	if section.Empty != "" && len(cards)+len(section.Tracks) == 0 {
 		emptyText := label(section.Empty, 13, core.FontWeightNormal, p.muted)
-		emptyText.Style.Padding = core.Symmetric(0, 28)
 		items = append(items, paperWrap(emptyText))
 	}
 	return items
@@ -663,8 +757,7 @@ func (m *model) section(cx *core.Scope, src music.Source, section music.Section,
 
 func (m *model) tile(cx *core.Scope, src music.Source, name, sub, image string, r route, playable bool) core.Node {
 	p := colors(cx)
-	const coverSize = core.Points(152)
-	const coverRadius = core.Points(15) // 10% of 152pt (matches 300pt -> 30pt)
+	const coverRadius = core.Points(15)
 	smooth := core.Curve{X1: 0.22, Y1: 1, X2: 0.36, Y2: 1}
 	hovered := core.NewSignal(cx, false)
 
@@ -672,7 +765,7 @@ func (m *model) tile(cx *core.Scope, src music.Source, name, sub, image string, 
 		Label:   name,
 		OnPress: func(core.PressEvent) { m.navigate(r) },
 		Style: core.Style{
-			Width: core.Pt(coverSize), Height: core.Pt(coverSize), CornerRadius: coverRadius,
+			Width: core.Pct(100), Height: core.Pct(100), CornerRadius: coverRadius,
 			Transition: core.Transition{Duration: 240 * time.Millisecond, Easing: smooth},
 			Active:     &core.Style{Transform: core.Transform{Scale: 0.985}},
 		},
@@ -691,7 +784,7 @@ func (m *model) tile(cx *core.Scope, src music.Source, name, sub, image string, 
 			}
 			return core.Style{Transform: core.Transform{Scale: 1}}
 		},
-		Children: []core.Node{m.tileArtwork(cx, name, image, coverSize, m.source.GetUntracked())},
+		Children: []core.Node{m.tileArtwork(cx, name, image, m.source.GetUntracked())},
 	}
 	coverChildren := []core.Node{coverBtn}
 	if playable {
@@ -731,7 +824,7 @@ func (m *model) tile(cx *core.Scope, src music.Source, name, sub, image string, 
 		coverChildren = append(coverChildren, playBtn)
 	}
 	coverBox := core.View{
-		Style:        core.Style{Width: core.Pt(coverSize), Height: core.Pt(coverSize)},
+		Style:        core.Style{Width: core.Pct(100), AspectRatio: 1},
 		OnMouseEnter: func(core.MouseEvent) { hovered.Set(true) },
 		OnMouseLeave: func(core.MouseEvent) { hovered.Set(false) },
 		Children:     coverChildren,
@@ -801,7 +894,7 @@ func (m *model) tile(cx *core.Scope, src music.Source, name, sub, image string, 
 	metaRow.Style.Gap = 4
 
 	return core.View{
-		Style:         core.Style{Width: core.Pt(coverSize), Gap: 10},
+		Style:         core.Style{Width: core.Pct(100), Gap: 10},
 		OnContextMenu: func(event core.ContextMenuEvent) { openMenu(event.PagePosition) },
 		Children:      []core.Node{coverBox, core.View{Style: core.Style{Gap: 3}, Children: []core.Node{titleBtn, metaRow}}},
 	}
@@ -816,7 +909,7 @@ func (m *model) trackList(cx *core.Scope, tracks []music.Track, list *music.Play
 				if i < 0 || i >= len(tracks) {
 					return nil
 				}
-				return m.songRow(cx, tracks[i], i, list, func() {
+				return m.songRow(cx, tracks[i], i, list, queue, func() {
 					if queue {
 						m.player.Jump(i)
 					} else {
@@ -828,7 +921,7 @@ func (m *model) trackList(cx *core.Scope, tracks []music.Track, list *music.Play
 	}
 }
 
-func (m *model) songRow(cx *core.Scope, track music.Track, index int, list *music.Playlist, play func()) core.Node {
+func (m *model) songRow(cx *core.Scope, track music.Track, index int, list *music.Playlist, queue bool, play func()) core.Node {
 	p := colors(cx)
 	isPlaying := func() bool {
 		cur := m.playing.Get().track
@@ -922,8 +1015,12 @@ func (m *model) songRow(cx *core.Scope, track music.Track, index int, list *musi
 			m.trackOptions(cx, track, index, list, at)
 		}})
 	entry.OnContextMenu = func(event core.ContextMenuEvent) { m.trackOptions(cx, track, index, list, event.PagePosition) }
-	entry.Style.Padding = core.Symmetric(1, 20)
 	entry.Style.Gap = 2
+	if queue {
+		entry.Style.Padding = core.Symmetric(1, 20)
+		return entry
+	}
+	entry.Style.Padding = core.Symmetric(1, 0)
 	return paperWrap(entry)
 }
 
