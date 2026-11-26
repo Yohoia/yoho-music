@@ -77,6 +77,7 @@ type model struct {
 	accounts           *core.Signal[map[string]pluginAccount]
 	sourceVersion      *core.Signal[int]
 	signInDialog       *core.Signal[signInDialogState]
+	peek               *core.Signal[peekState]
 	back               []route
 	forward            []route
 	history            *core.Signal[int]
@@ -115,6 +116,7 @@ func newModel(cx *core.Scope, dir string) *model {
 		notchState:     core.NewSignal(cx, notchPresentation{}),
 		accounts:       core.NewSignalFunc(cx, map[string]pluginAccount{}, nil), sourceVersion: core.NewSignal(cx, 0),
 		signInDialog: core.NewSignalFunc(cx, signInDialogState{}, nil),
+		peek:         core.NewSignalFunc(cx, peekState{}, nil),
 	}
 	m.applyPreferences(cx)
 	m.lib.OnChange(func() { cx.Post(m.invalidate) })

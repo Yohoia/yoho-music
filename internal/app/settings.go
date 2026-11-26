@@ -382,9 +382,13 @@ func pluginNavEntries(src music.Source) []pluginNavEntry {
 			}
 		}
 		title := item.Title
+		icon := item.Icon
 		if item.Page != "" {
 			if title != "" && src.Can("browse") {
-				entries = append(entries, pluginNavEntry{title: title, target: route{page: "browse", id: item.Page}, icon: item.Icon})
+				if icon == "" && item.Page == "playlists-hub" {
+					icon = "playlists"
+				}
+				entries = append(entries, pluginNavEntry{title: title, target: route{page: "browse", id: item.Page}, icon: icon})
 			}
 			continue
 		}
@@ -394,7 +398,17 @@ func pluginNavEntries(src music.Source) []pluginNavEntry {
 		if title == "" {
 			title = names[item.Builtin]
 		}
-		entries = append(entries, pluginNavEntry{title: title, target: route{page: item.Builtin}, icon: item.Icon})
+		if icon == "" {
+			switch item.Builtin {
+			case "home":
+				icon = "home"
+			case "playlists":
+				icon = "playlists"
+			case "recent":
+				icon = "history"
+			}
+		}
+		entries = append(entries, pluginNavEntry{title: title, target: route{page: item.Builtin}, icon: icon})
 	}
 	return entries
 }

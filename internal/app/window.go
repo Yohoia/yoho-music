@@ -146,7 +146,9 @@ func (m *model) root(cx *core.Scope) core.Node {
 	cx.OnKey("alt+left", m.goBack)
 	cx.OnKey("alt+right", m.goForward)
 	cx.OnKey("escape", func() {
-		if m.sourceMenuOpen.GetUntracked() {
+		if m.peek.GetUntracked().open {
+			m.closePeek()
+		} else if m.sourceMenuOpen.GetUntracked() {
 			m.sourceMenuOpen.Set(false)
 		} else if m.searchOpen.GetUntracked() {
 			m.searchOpen.Set(false)
@@ -163,12 +165,23 @@ func (m *model) root(cx *core.Scope) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		_ = language.Get()
 		p := colors(cx)
-		return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, Background: p.background}, Children: []core.Node{
-			core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1},
+		return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, Background: p.sidebar}, Children: []core.Node{
+			core.View{
+				Style: core.Style{
+					FlexGrow: 1, FlexShrink: 1, Background: p.background, Overflow: core.Hidden,
+					Transition: core.Transition{Duration: 280 * time.Millisecond, Easing: core.EaseOut},
+				},
 				AccessibilityElementsHidden: func() bool { return m.stage.Get() != "" },
 				StyleFunc: func() core.Style {
 					if m.stageCovered.Get() {
 						return core.Style{Visibility: core.VisibilityHidden}
+					}
+					if m.peek.Get().open {
+						return core.Style{
+							CornerRadius: 16,
+							Opacity:      core.Alpha(0.72),
+							Transform:    core.Transform{Scale: 0.965, TranslateX: -18},
+						}
 					}
 					return core.Style{}
 				}, Children: []core.Node{
@@ -178,6 +191,7 @@ func (m *model) root(cx *core.Scope) core.Node {
 					m.floatingHeader(menuBtnRef, openSearch),
 					m.playerBar(cx),
 				}},
+			m.peekOverlay(cx),
 			core.Show{When: func() bool { return m.stage.Get() != "" }, Then: m.nowPlaying},
 			m.sourceMenuOverlay(cx, menuBtnRef),
 			m.searchOverlay(cx, searchRef),
@@ -284,7 +298,7 @@ func (m *model) headerBackdrop(cx *core.Scope) core.Node {
 		StyleFunc: func() core.Style {
 			h := core.Pt(64)
 			if m.hasSubNav() {
-				h = core.Pt(82)
+				h = core.Pt(96)
 			}
 			bgHex := uint32(0xffffff)
 			if cx.Dark() {
@@ -316,7 +330,7 @@ func headerLayer(children ...core.Node) core.View {
 
 func (m *model) floatingHeader(menuBtnRef *core.Ref, openSearch func()) core.Node {
 	return core.Show{When: m.hasSubNav, Then: func(cx *core.Scope) core.Node {
-		titlebar := core.View{Style: core.Style{Height: core.Pt(20)}}
+		titlebar := core.View{Style: core.Style{Height: core.Pt(32)}}
 		titlebar.Desktop.WindowDrag = core.WindowDragOn
 		return headerLayer(m.headerBackdrop(cx), titlebar, m.pageError(false), m.subNav(cx, menuBtnRef, openSearch))
 	}}
@@ -443,22 +457,24 @@ func isLocalCategoryPage(page string) bool {
 }
 
 func (m *model) subNavBar(cx *core.Scope, p palette, menuBtnRef *core.Ref, brand core.Node, items []core.Node, openSearch func()) core.Node {
-	// Hang the search icon and account avatar together on the right of the paper column
-	// so the wordmark aligns flush-left and the last category pill aligns flush-right with the content below.
+	// Keep brand, navigation icons, search, and avatar aligned inside the centered paperWrap column
+	// so the wordmark aligns flush-left and the avatar aligns flush-right with the content below.
+	tabs := row(items...)
+	tabs.Style.Gap = 4
+	sep := core.View{
+		Style: core.Style{
+			Width: core.Pt(1), Height: core.Pt(14),
+			Background: p.line, Margin: core.Symmetric(0, 6),
+		},
+	}
 	rightTools := row(m.searchIconButton(cx, openSearch), m.accountAvatarButton(cx, p, menuBtnRef))
 	rightTools.Style.Gap = 6
-	hangingTools := core.View{
-		Style:    core.Style{Position: core.Absolute, Right: core.Pt(-80), Top: core.Pt(1)},
-		Children: []core.Node{rightTools},
-	}
-	tabs := row(items...)
-	tabs.Style.Gap = 2
-	bar := row(brand, spacer(), tabs)
+	controls := row(tabs, sep, rightTools)
+	controls.Style.Gap = 2
+	bar := row(brand, spacer(), controls)
 	bar.Style.Padding = core.Edges{Top: 2, Bottom: 8}
 	bar.Style.Gap = 12
-	return paperWrap(core.View{
-		Children: []core.Node{hangingTools, bar},
-	})
+	return paperWrap(bar)
 }
 
 func (m *model) sourceMenuOverlay(cx *core.Scope, menuBtnRef *core.Ref) core.Node {
@@ -597,10 +613,16 @@ func sourceDisplayName(info music.Info) string {
 
 func subNavGlyph(name string) glyph {
 	switch name {
+	case "home", "discover":
+		return lucide.Compass
 	case "heart":
 		return lucide.Heart
 	case "bookmark":
 		return lucide.Bookmark
+	case "playlists":
+		return lucide.ListMusic
+	case "history", "recent":
+		return lucide.Clock4
 	}
 	return nil
 }
@@ -608,7 +630,7 @@ func subNavGlyph(name string) glyph {
 func (m *model) subNavIconTo(cx *core.Scope, icon glyph, title string, target route) core.Node {
 	p := colors(cx)
 	isSelected := func() bool { return m.page.Get() == target }
-	return base.Button{
+	btn := base.Button{
 		OnPress:  func(core.PressEvent) { m.navigate(target) },
 		Label:    title,
 		TestID:   "nav-" + target.page + target.id,
@@ -627,6 +649,7 @@ func (m *model) subNavIconTo(cx *core.Scope, icon glyph, title string, target ro
 			return p.muted
 		})},
 	}
+	return ui.Tooltip{Text: title, Trigger: btn}
 }
 
 func (m *model) subNavTo(cx *core.Scope, text string, target route) core.Node {

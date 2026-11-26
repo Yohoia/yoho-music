@@ -177,7 +177,7 @@ func (m *model) loadingSkeleton(cx *core.Scope, r route) core.Node {
 		}
 		topPad := detailHeaderHeight
 		if m.hasSubNav() {
-			topPad = 74
+			topPad = 88
 		}
 		content = core.Scroll{
 			Style: fill,
@@ -211,7 +211,7 @@ func (m *model) loadingSkeleton(cx *core.Scope, r route) core.Node {
 		wrap = paperWrap
 		topPad := detailHeaderHeight
 		if m.hasSubNav() {
-			topPad = 74
+			topPad = 88
 		}
 		content = core.Scroll{
 			Style: fill,
@@ -238,7 +238,7 @@ func (m *model) loadingSkeleton(cx *core.Scope, r route) core.Node {
 		wrap = paperWrap
 		topPad := detailHeaderHeight
 		if m.hasSubNav() {
-			topPad = 74
+			topPad = 88
 		}
 		rows := make([]core.Node, 0, 10)
 		rows = append(rows,

@@ -598,24 +598,12 @@ func (m *model) catalogSections(cx *core.Scope, src music.Source, d catalogData,
 	categoryPage := m.hasSubNav()
 	topPad := detailHeaderHeight
 	if categoryPage {
-		topPad = 74
+		topPad = 88
 	}
 	if len(d.sections) == 1 {
 		section := d.sections[0]
 		if len(tracks) > 0 && len(section.Albums)+len(section.Artists)+len(section.Playlists)+len(section.Shows)+len(section.Stations)+len(section.Links) == 0 {
-			list := m.trackList(cx, tracks, d.list, false)
-			if header != nil {
-				list.Header = core.View{Style: core.Style{Padding: core.Edges{Top: topPad}}, Children: []core.Node{header}}
-			} else {
-				list.Header = core.View{Style: core.Style{Height: core.Pt(topPad)}}
-			}
-			var footerNodes []core.Node
-			if footer != nil {
-				footerNodes = append(footerNodes, paperWrap(footer))
-			}
-			footerNodes = append(footerNodes, core.View{Style: core.Style{Height: core.Pt(108)}})
-			list.Footer = core.View{Children: footerNodes}
-			return list
+			return m.editorialTrackPage(cx, src, d, tracks, footer, topPad)
 		}
 	}
 	var body []core.Node
@@ -760,7 +748,7 @@ func (m *model) playlistsHubView(cx *core.Scope, src music.Source, d catalogData
 	}
 	topPad := core.Points(46)
 	if m.hasSubNav() {
-		topPad = 74
+		topPad = 88
 	}
 	return core.Scroll{
 		Style:    fill,
@@ -1121,24 +1109,64 @@ func (m *model) collectionSongRow(cx *core.Scope, track music.Track, index int, 
 			return core.Style{}
 		},
 	}
-	titleStackChildren := []core.Node{title}
+	titleStackChildren := []core.Node{
+		base.Button{
+			Label:    track.Name,
+			OnPress:  func(core.PressEvent) { m.playback(play)() },
+			Style:    core.Style{AlignItems: core.AlignStart},
+			Children: []core.Node{title},
+		},
+	}
 	if artists := track.ArtistNames(); artists != "" {
-		artist := label(artists, 12, core.FontWeightNormal, p.muted)
-		artist.MaxLines = 1
-		titleStackChildren = append(titleStackChildren, artist)
+		artistText := core.Text{
+			Content:  artists,
+			MaxLines: 1,
+			Style: core.Style{
+				FontSize: 12, FontWeight: core.FontWeightNormal, Color: p.muted,
+				Hover: &core.Style{Color: p.text},
+			},
+		}
+		if len(track.Artists) > 0 && track.Artists[0].ID != "" {
+			a := track.Artists[0]
+			titleStackChildren = append(titleStackChildren, base.Button{
+				Label:    a.Name,
+				TestID:   "track-artist-" + fmt.Sprint(index),
+				OnPress:  func(core.PressEvent) { m.openPeek(track.Source, "artist", a.ID, a.Name, a.ImageURL) },
+				Style:    core.Style{AlignSelf: core.AlignStart},
+				Children: []core.Node{artistText},
+			})
+		} else {
+			titleStackChildren = append(titleStackChildren, artistText)
+		}
 	}
 	titleStack := core.View{
 		Style:    core.Style{FlexGrow: 1.35, FlexShrink: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0), Gap: 2, Padding: core.Edges{Right: 12}},
 		Children: titleStackChildren,
 	}
 
+	var albumNode core.Node
+	al := core.Text{
+		Content:  track.Album.Name,
+		MaxLines: 1,
+		Style: core.Style{
+			FontSize: 13, FontWeight: core.FontWeightNormal, Color: p.muted,
+			Hover: &core.Style{Color: p.text},
+		},
+	}
+	if track.Album.ID != "" && track.Album.Name != "" {
+		albumNode = base.Button{
+			Label:    track.Album.Name,
+			TestID:   "track-album-" + fmt.Sprint(index),
+			OnPress:  func(core.PressEvent) { m.openPeek(track.Source, "album", track.Album.ID, track.Album.Name, track.Album.ImageURL) },
+			Style:    core.Style{AlignSelf: core.AlignStart, MaxWidth: core.Pct(100)},
+			Children: []core.Node{al},
+		}
+	} else {
+		albumNode = al
+	}
 	albumCol := core.View{
-		Style: core.Style{FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0), Padding: core.Edges{Right: 12}},
-		Children: []core.Node{func() core.Node {
-			al := label(track.Album.Name, 13, core.FontWeightNormal, p.muted)
-			al.MaxLines = 1
-			return al
-		}()},
+		Style:    core.Style{FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0), Padding: core.Edges{Right: 12}},
+		Children: []core.Node{albumNode},
 	}
 
 	dur := label(formatTime(track.Length()), 13, core.FontWeightNormal, p.muted)
@@ -1147,14 +1175,19 @@ func (m *model) collectionSongRow(cx *core.Scope, track music.Track, index int, 
 	dur.Style.TextAlign = core.TextAlignEnd
 	dur.Style.FlexShrink = 0
 
-	mainBtn := base.Button{
-		Label:   track.Name,
-		TestID:  "track-" + fmt.Sprint(index),
-		OnPress: func(core.PressEvent) { m.playback(play)() },
+	leadPlayBtn := base.Button{
+		Label:    track.Name,
+		TestID:   "track-" + fmt.Sprint(index),
+		OnPress:  func(core.PressEvent) { m.playback(play)() },
+		Style:    core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 14, FlexShrink: 0, Padding: core.Edges{Left: 10}},
+		Children: []core.Node{num, thumb},
+	}
+
+	mainRow := core.View{
 		Style: core.Style{
 			Direction: core.Row, AlignItems: core.AlignCenter, Gap: 14,
 			FlexGrow: 1, FlexShrink: 1, Height: core.Pt(54),
-			Padding: core.Symmetric(0, 10), CornerRadius: 8,
+			Padding: core.Edges{Right: 10}, CornerRadius: 8,
 			Hover: &core.Style{Background: p.hover},
 		},
 		StyleFunc: func() core.Style {
@@ -1163,11 +1196,11 @@ func (m *model) collectionSongRow(cx *core.Scope, track music.Track, index int, 
 			}
 			return core.Style{}
 		},
-		Children: []core.Node{num, thumb, titleStack, albumCol, dur},
+		Children: []core.Node{leadPlayBtn, titleStack, albumCol, dur},
 	}
 
 	menuRef := &core.Ref{}
-	entry := row(mainBtn)
+	entry := row(mainRow)
 	source := m.sourceByID(track.Source)
 	if canLike(source, track) {
 		like := iconButton(lucide.Heart, i18n.T("Like Song"), "like-"+fmt.Sprint(index), func() { m.toggleLike(track) })
