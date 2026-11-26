@@ -360,29 +360,7 @@ func (m *model) peekArtistContent(cx *core.Scope, p palette, src music.Source, p
 
 	var extraActions []core.Node
 	if src.Can("followArtist") {
-		following := artist.Following
-		lbl := i18n.T("Follow")
-		icon := lucide.Plus
-		if following {
-			lbl = i18n.T("Following")
-			icon = lucide.Check
-		}
-		extraActions = append(extraActions, base.Button{
-			Label:  lbl,
-			TestID: "peek-follow-artist",
-			OnPress: func(core.PressEvent) {
-				m.changeSource(cx, src, func() error { return src.FollowArtist(artist.ID, !following) })
-			},
-			Style: core.Style{
-				Direction: core.Row, Height: core.Pt(30), Padding: core.Symmetric(0, 12), CornerRadius: 15,
-				BorderWidth: 1, BorderColor: p.line, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 5,
-				Hover: &core.Style{Background: p.hover},
-			},
-			Children: []core.Node{
-				ui.Icon(icon, 12, func() core.Color { return p.text }),
-				label(lbl, 12, core.FontWeightMedium, p.text),
-			},
-		})
+		extraActions = append(extraActions, m.collectionSaveButton(cx, src, "artist", artist.ID, artist.Following, "peek-follow-artist", true))
 	}
 
 	hero := core.View{
@@ -552,29 +530,7 @@ func (m *model) peekAlbumContent(cx *core.Scope, p palette, src music.Source, pa
 
 	var extraActions []core.Node
 	if src.Can("saveAlbum") {
-		saved := album.Saved
-		lbl := i18n.T("Save")
-		icon := lucide.Bookmark
-		if saved {
-			lbl = i18n.T("Saved")
-			icon = lucide.Check
-		}
-		extraActions = append(extraActions, base.Button{
-			Label:  lbl,
-			TestID: "peek-save-album",
-			OnPress: func(core.PressEvent) {
-				m.changeSource(cx, src, func() error { return src.SaveAlbum(album.ID, !saved) })
-			},
-			Style: core.Style{
-				Direction: core.Row, Height: core.Pt(30), Padding: core.Symmetric(0, 12), CornerRadius: 15,
-				BorderWidth: 1, BorderColor: p.line, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 5,
-				Hover: &core.Style{Background: p.hover},
-			},
-			Children: []core.Node{
-				ui.Icon(icon, 12, func() core.Color { return p.text }),
-				label(lbl, 12, core.FontWeightMedium, p.text),
-			},
-		})
+		extraActions = append(extraActions, m.albumSaveButton(cx, src, album, "peek-save-album", true))
 	}
 
 	hero := core.View{

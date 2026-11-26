@@ -52,6 +52,9 @@ type playbackView struct {
 }
 
 type model struct {
+	savedCollections   map[collectionSaveKey]*collectionSaveState
+	likes              map[likeKey]*trackLike
+	pendingLikes       []*trackLike
 	cx                 *core.Scope
 	context            context.Context
 	dir                string
@@ -100,7 +103,9 @@ func newModel(cx *core.Scope, dir string) *model {
 		readJSON(filepath.Join(dir, "settings.json"), &prefs)
 	}
 	m := &model{
-		cx: cx, context: cx.Context(), dir: dir, lib: local.New(dir),
+		savedCollections: make(map[collectionSaveKey]*collectionSaveState),
+		likes:            make(map[likeKey]*trackLike),
+		cx:               cx, context: cx.Context(), dir: dir, lib: local.New(dir),
 		page: core.NewSignal(cx, route{page: "home"}), query: core.NewSignal(cx, ""), searchOpen: core.NewSignal(cx, false), sourceMenuOpen: core.NewSignal(cx, false),
 		updated: core.NewSignal(cx, 0), playing: core.NewSignalFunc(cx, playbackView{}, nil),
 		pos: core.NewSignal(cx, time.Duration(0)), prefs: core.NewSignal(cx, prefs),

@@ -6,7 +6,6 @@ import (
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
-	"github.com/nsgo-dev/nsgo/ui"
 	"yoho-music/internal/i18n"
 	"yoho-music/internal/music"
 )
@@ -34,34 +33,16 @@ func (m *model) sourceCatalogActions(cx *core.Scope, src music.Source, data cata
 			})}
 		}
 		if !list.Mine && src.Can("savePlaylist") {
-			return []core.Node{m.sourceSaveButton(cx, src, "save-playlist-to-library", list.Saved, func() error {
-				return src.SavePlaylist(list.ID, !list.Saved)
-			})}
+			return []core.Node{m.collectionSaveButton(cx, src, "playlist", list.ID, list.Saved, "save-playlist-to-library", false)}
 		}
 	}
 	if album := data.album; album != nil && src.Can("saveAlbum") {
-		return []core.Node{m.sourceSaveButton(cx, src, "save-album", album.Saved, func() error {
-			return src.SaveAlbum(album.ID, !album.Saved)
-		})}
+		return []core.Node{m.albumSaveButton(cx, src, *album, "save-album", false)}
 	}
 	if artist := data.artist; artist != nil && src.Can("followArtist") {
-		title, icon := i18n.T("Follow"), lucide.Plus
-		if artist.Following {
-			title, icon = i18n.T("Unfollow"), lucide.Check
-		}
-		return []core.Node{button(title, "follow-artist", icon, func() {
-			m.changeSource(cx, src, func() error { return src.FollowArtist(artist.ID, !artist.Following) })
-		})}
+		return []core.Node{m.collectionSaveButton(cx, src, "artist", artist.ID, artist.Following, "follow-artist", false)}
 	}
 	return nil
-}
-
-func (m *model) sourceSaveButton(cx *core.Scope, src music.Source, id string, saved bool, apply func() error) ui.Button {
-	title, icon := i18n.TC("Save", "library"), lucide.Bookmark
-	if saved {
-		title, icon = i18n.T("Remove from Saved"), lucide.BookmarkCheck
-	}
-	return button(title, id, icon, func() { m.changeSource(cx, src, apply) })
 }
 
 func (m *model) sourceTrackActions(cx *core.Scope, src music.Source, track music.Track, index int, list *music.Playlist, at core.Point) []desktopItem {

@@ -245,6 +245,7 @@ var zhCN = map[string]string{
 	"Save changes":                           "保存修改",
 	"Save|library":                           "收藏",
 	"Saved":                                  "已收藏",
+	"Favorites":                              "收藏",
 	"Saved Albums":                           "收藏的专辑",
 	"Saved Playlists":                        "收藏的歌单",
 	"Search Settings":                        "搜索设置",

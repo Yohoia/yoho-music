@@ -37,6 +37,7 @@ type trackComments struct {
 	hot, next, total   int
 	loaded, more, busy bool
 	problem            string
+	animatedComment    string
 }
 
 func (m *model) commentsPane(cx *core.Scope, track music.Track) core.Node {
@@ -51,7 +52,7 @@ func (m *model) commentsPane(cx *core.Scope, track music.Track) core.Node {
 		if current.busy {
 			return
 		}
-		current.busy, current.problem = true, ""
+		current.busy, current.problem, current.animatedComment = true, "", ""
 		state.Set(current)
 		go func() {
 			next := current
@@ -130,23 +131,38 @@ func (m *model) commentsPane(cx *core.Scope, track music.Track) core.Node {
 			name := label(comment.Author, 13, core.FontWeightBold, p.text)
 			meta := row(m.artwork(cx, comment.AvatarURL, 28, track.Source), name, spacer())
 			if src.Can("likeComment") {
-				like := button(fmt.Sprint(comment.Likes), fmt.Sprintf("comment-like-%d", i), lucide.Heart, func() {
-					run(func(next *trackComments) error {
-						if err := src.LikeComment(track.ID, comment.ID, !comment.Liked); err != nil {
-							return err
-						}
-						next.items[i].Liked = !comment.Liked
-						if comment.Liked {
-							next.items[i].Likes = max(0, comment.Likes-1)
-						} else {
-							next.items[i].Likes++
-						}
-						return nil
-					}, nil)
-				})
-				like.Disabled = func() bool { return state.Get().busy }
-				if comment.Liked {
-					like.Variant = ui.ButtonPrimary
+				scale, animate, particles := favoriteMotion(cx, fmt.Sprintf("comment-like-%d", i), 28, 14)
+				if current.animatedComment == comment.ID {
+					cx.Post(func() { animate(comment.Liked) })
+				}
+				like := base.Button{TestID: fmt.Sprintf("comment-like-%d", i), Label: fmt.Sprint(comment.Likes),
+					Selected: func() bool { return comment.Liked }, Disabled: func() bool { return state.Get().busy },
+					OnPress: func(core.PressEvent) {
+						run(func(next *trackComments) error {
+							if err := src.LikeComment(track.ID, comment.ID, !comment.Liked); err != nil {
+								return err
+							}
+							next.items[i].Liked = !comment.Liked
+							next.animatedComment = comment.ID
+							if comment.Liked {
+								next.items[i].Likes = max(0, comment.Likes-1)
+							} else {
+								next.items[i].Likes++
+							}
+							return nil
+						}, nil)
+					},
+					Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4, Height: core.Pt(28), Padding: core.Symmetric(0, 8), CornerRadius: 14, Hover: &core.Style{Background: p.hover}},
+					Children: []core.Node{
+						core.View{Style: core.Style{Width: core.Pt(28), Height: core.Pt(28), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter}, Children: []core.Node{
+							core.View{Style: core.Style{Animated: &core.AnimatedStyle{Scale: scale}}, Children: []core.Node{ui.Icon(lucide.Heart, 14, func() core.Color {
+								if comment.Liked {
+									return core.RGB(0xff4d6d)
+								}
+								return p.muted
+							})}}, particles}},
+						label(fmt.Sprint(comment.Likes), 12, core.FontWeightMedium, p.text),
+					},
 				}
 				meta.Children = append(meta.Children, like)
 			}

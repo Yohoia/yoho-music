@@ -16,7 +16,6 @@ func TestPlaybarVolumeTrackClick(t *testing.T) {
 		m = newModel(cx, dir)
 		return m.root(cx)
 	}, nsgotest.Size(1180, 780))
-	app.Press("id:nav-songs")
 	app.WaitFor("id:track-0", 5*time.Second)
 	app.Press("id:track-0")
 	app.WaitFor("id:volume-toggle", time.Second)

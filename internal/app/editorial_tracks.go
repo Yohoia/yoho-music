@@ -173,9 +173,9 @@ func (m *model) editorialTrackRow(cx *core.Scope, track music.Track, index int, 
 	}
 	titleStackChildren := []core.Node{
 		base.Button{
-			Label:   track.Name,
-			OnPress: func(core.PressEvent) { m.playback(play)() },
-			Style:   core.Style{AlignItems: core.AlignStart},
+			Label:    track.Name,
+			OnPress:  func(core.PressEvent) { m.playback(play)() },
+			Style:    core.Style{AlignItems: core.AlignStart},
 			Children: []core.Node{title},
 		},
 	}
@@ -191,10 +191,10 @@ func (m *model) editorialTrackRow(cx *core.Scope, track music.Track, index int, 
 		if len(track.Artists) > 0 && track.Artists[0].ID != "" {
 			a := track.Artists[0]
 			titleStackChildren = append(titleStackChildren, base.Button{
-				Label:   a.Name,
-				TestID:  "track-artist-" + fmt.Sprint(index),
-				OnPress: func(core.PressEvent) { m.openPeek(track.Source, "artist", a.ID, a.Name, a.ImageURL) },
-				Style:   core.Style{AlignSelf: core.AlignStart},
+				Label:    a.Name,
+				TestID:   "track-artist-" + fmt.Sprint(index),
+				OnPress:  func(core.PressEvent) { m.openPeek(track.Source, "artist", a.ID, a.Name, a.ImageURL) },
+				Style:    core.Style{AlignSelf: core.AlignStart},
 				Children: []core.Node{artistText},
 			})
 		} else {
@@ -217,10 +217,12 @@ func (m *model) editorialTrackRow(cx *core.Scope, track music.Track, index int, 
 	}
 	if track.Album.ID != "" && track.Album.Name != "" {
 		albumNode = base.Button{
-			Label:   track.Album.Name,
-			TestID:  "track-album-" + fmt.Sprint(index),
-			OnPress: func(core.PressEvent) { m.openPeek(track.Source, "album", track.Album.ID, track.Album.Name, track.Album.ImageURL) },
-			Style:   core.Style{AlignSelf: core.AlignStart, MaxWidth: core.Pct(100)},
+			Label:  track.Album.Name,
+			TestID: "track-album-" + fmt.Sprint(index),
+			OnPress: func(core.PressEvent) {
+				m.openPeek(track.Source, "album", track.Album.ID, track.Album.Name, track.Album.ImageURL)
+			},
+			Style:    core.Style{AlignSelf: core.AlignStart, MaxWidth: core.Pct(100)},
 			Children: []core.Node{al},
 		}
 	} else {
@@ -265,18 +267,7 @@ func (m *model) editorialTrackRow(cx *core.Scope, track music.Track, index int, 
 	entry := row(mainRow)
 	source := m.sourceByID(track.Source)
 	if canLike(source, track) {
-		like := iconButton(lucide.Heart, i18n.T("Like Song"), "like-"+fmt.Sprint(index), func() { m.toggleLike(track) })
-		like.Size, like.IconSize = 28, 14
-		if source == m.lib {
-			like.Tint = func() core.Color {
-				m.updated.Get()
-				liked, _ := m.lib.IsLiked([]string{track.ID})
-				if liked[track.ID] {
-					return p.text
-				}
-				return p.muted
-			}
-		}
+		like := m.likeButton(cx, track, "like-"+fmt.Sprint(index), 28, 14)
 		entry.Children = append(entry.Children, like)
 	}
 	entry.Children = append(entry.Children, base.Button{

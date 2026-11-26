@@ -365,11 +365,11 @@ type pluginNavEntry struct {
 func pluginNavEntries(src music.Source) []pluginNavEntry {
 	info := src.Info()
 	names := map[string]string{"home": i18n.T("Home"), "liked": i18n.T("Liked Songs"), "shows": i18n.T("Podcasts"),
-		"stations": i18n.T("Stations"), "playlists": i18n.T("Playlists"), "recent": i18n.T("Recently Played"), "savedAlbums": i18n.T("Saved Albums")}
+		"stations": i18n.T("Stations"), "playlists": i18n.T("Playlists"), "recent": i18n.T("Recently Played"), "savedAlbums": i18n.T("Favorites")}
 	nav := info.Navigation
 	if len(nav) == 0 {
 		for _, page := range []string{"home", "liked", "playlists", "savedAlbums", "recent", "shows", "stations"} {
-			if src.Can(page) {
+			if src.Can(page) || page == "savedAlbums" && src.Can("savePlaylist") && src.Can("playlists") {
 				nav = append(nav, music.NavItem{Builtin: page})
 			}
 		}
@@ -392,8 +392,11 @@ func pluginNavEntries(src music.Source) []pluginNavEntry {
 			}
 			continue
 		}
-		if _, ok := names[item.Builtin]; !ok || !src.Can(item.Builtin) {
+		if _, ok := names[item.Builtin]; !ok || !src.Can(item.Builtin) && !(item.Builtin == "savedAlbums" && src.Can("playlists")) {
 			continue
+		}
+		if item.Builtin == "savedAlbums" {
+			title = i18n.T("Favorites")
 		}
 		if title == "" {
 			title = names[item.Builtin]
@@ -418,7 +421,7 @@ func isPluginCategoryPage(r route, entries []pluginNavEntry) bool {
 		return true
 	}
 	for _, entry := range entries {
-		if entry.target == r {
+		if entry.target == r || entry.target.page == "savedAlbums" && r.page == "savedAlbums" {
 			return true
 		}
 	}

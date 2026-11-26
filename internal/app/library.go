@@ -47,6 +47,10 @@ func (m *model) pageView(cx *core.Scope, marketSearchRef *core.Ref) core.Node {
 		}
 		return body
 	}
+	if r.page == "savedAlbums" {
+		m.sourceVersion.Get()
+		return m.withDetailHeader(cx, m.favoritesPage(cx, src), paperWrap)
+	}
 	// Query plugins off the UI goroutine. The owner prevents a stale response
 	// from replacing a newer page after navigation.
 	m.sourceVersion.Get()
@@ -979,13 +983,7 @@ func (m *model) collectionDetail(cx *core.Scope, src music.Source, d catalogData
 	if d.show != nil {
 		show := *d.show
 		if src.Can("subscribeShow") {
-			subTitle, icon := i18n.T("Subscribe"), lucide.Plus
-			if show.Subscribed {
-				subTitle, icon = i18n.T("Unsubscribe"), lucide.Check
-			}
-			actionNodes = append(actionNodes, button(subTitle, "subscribe-show", icon, func() {
-				m.changeSource(cx, src, func() error { return src.SubscribeShow(show.ID, !show.Subscribed) })
-			}))
+			actionNodes = append(actionNodes, m.collectionSaveButton(cx, src, "show", show.ID, show.Subscribed, "subscribe-show", false))
 		}
 		if show.PublisherPage != "" {
 			pubTitle := show.Publisher
@@ -1155,9 +1153,11 @@ func (m *model) collectionSongRow(cx *core.Scope, track music.Track, index int, 
 	}
 	if track.Album.ID != "" && track.Album.Name != "" {
 		albumNode = base.Button{
-			Label:    track.Album.Name,
-			TestID:   "track-album-" + fmt.Sprint(index),
-			OnPress:  func(core.PressEvent) { m.openPeek(track.Source, "album", track.Album.ID, track.Album.Name, track.Album.ImageURL) },
+			Label:  track.Album.Name,
+			TestID: "track-album-" + fmt.Sprint(index),
+			OnPress: func(core.PressEvent) {
+				m.openPeek(track.Source, "album", track.Album.ID, track.Album.Name, track.Album.ImageURL)
+			},
 			Style:    core.Style{AlignSelf: core.AlignStart, MaxWidth: core.Pct(100)},
 			Children: []core.Node{al},
 		}
@@ -1203,18 +1203,7 @@ func (m *model) collectionSongRow(cx *core.Scope, track music.Track, index int, 
 	entry := row(mainRow)
 	source := m.sourceByID(track.Source)
 	if canLike(source, track) {
-		like := iconButton(lucide.Heart, i18n.T("Like Song"), "like-"+fmt.Sprint(index), func() { m.toggleLike(track) })
-		like.Size, like.IconSize = 28, 14
-		if source == m.lib {
-			like.Tint = func() core.Color {
-				m.updated.Get()
-				liked, _ := m.lib.IsLiked([]string{track.ID})
-				if liked[track.ID] {
-					return p.text
-				}
-				return p.muted
-			}
-		}
+		like := m.likeButton(cx, track, "like-"+fmt.Sprint(index), 28, 14)
 		entry.Children = append(entry.Children, like)
 	}
 	entry.Children = append(entry.Children, base.Button{
@@ -1870,18 +1859,7 @@ func (m *model) songRow(cx *core.Scope, track music.Track, index int, list *musi
 	entry := row(button)
 	source := m.sourceByID(track.Source)
 	if canLike(source, track) {
-		like := iconButton(lucide.Heart, i18n.T("Like Song"), "like-"+fmt.Sprint(index), func() { m.toggleLike(track) })
-		like.Size, like.IconSize = 28, 14
-		if source == m.lib {
-			like.Tint = func() core.Color {
-				m.updated.Get()
-				liked, _ := m.lib.IsLiked([]string{track.ID})
-				if liked[track.ID] {
-					return p.text
-				}
-				return p.muted
-			}
-		}
+		like := m.likeButton(cx, track, "like-"+fmt.Sprint(index), 28, 14)
 		entry.Children = append(entry.Children, like)
 	}
 	entry.Children = append(entry.Children, base.Button{Ref: menuRef, Label: i18n.T("Track Options"), TestID: "track-menu-" + fmt.Sprint(index),
@@ -1912,39 +1890,6 @@ func canLike(src music.Source, track music.Track) bool {
 		return src.Can("likeEpisode")
 	}
 	return src.Can("like")
-}
-
-func (m *model) toggleLike(track music.Track) {
-	src := m.sourceByID(track.Source)
-	if !canLike(src, track) {
-		return
-	}
-	go func() {
-		liked, err := src.IsLiked([]string{track.ID})
-		if errors.Is(err, music.ErrUnsupported) {
-			err = nil
-		}
-		if err == nil {
-			send := src.Like
-			if track.ShowID != "" {
-				send = src.LikeEpisode
-			}
-			err = send(track.ID, !liked[track.ID])
-		}
-		m.cx.Post(func() {
-			if errors.Is(err, music.ErrSignIn) && src.Can("signIn") {
-				m.changeAccount(src, true)
-				return
-			}
-			m.report(err)
-			if err == nil {
-				m.invalidate()
-				if src != m.lib && m.page.GetUntracked().page == "liked" {
-					m.sourceVersion.Update(func(n int) int { return n + 1 })
-				}
-			}
-		})
-	}()
 }
 
 func (m *model) trackOptions(cx *core.Scope, track music.Track, index int, list *music.Playlist, at core.Point) {

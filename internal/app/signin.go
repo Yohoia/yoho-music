@@ -21,6 +21,26 @@ func (m *model) setAccount(id string, account pluginAccount) {
 	if m.sourceByID(id) != account.source {
 		return
 	}
+	previous := m.accounts.GetUntracked()[id]
+	previousID, accountID := "", ""
+	if previous.account != nil {
+		previousID = previous.account.ID
+	}
+	if account.account != nil {
+		accountID = account.account.ID
+	}
+	if previous.source != account.source || previousID != accountID {
+		for key := range m.savedCollections {
+			if key.source.Info().ID == id {
+				delete(m.savedCollections, key)
+			}
+		}
+		for key := range m.likes {
+			if key.source.Info().ID == id {
+				delete(m.likes, key)
+			}
+		}
+	}
 	m.accounts.Update(func(current map[string]pluginAccount) map[string]pluginAccount {
 		updated := make(map[string]pluginAccount, len(current)+1)
 		for key, value := range current {

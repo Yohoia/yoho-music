@@ -23,7 +23,6 @@ func TestPlaybarKeepsArtworkOnPlaybackChange(t *testing.T) {
 		m = newModel(cx, dir)
 		return m.root(cx)
 	}, nsgotest.Size(1180, 780))
-	app.Press("id:nav-songs")
 	app.WaitFor("id:track-0", 5*time.Second)
 	app.Post(func() {
 		result, _ := m.lib.Search("Signal", music.SearchTracks, 0)
@@ -62,7 +61,6 @@ func TestPlaybarCrossfadesDuringResize(t *testing.T) {
 	dir := testLibrary(t)
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node { return newModel(cx, dir).root(cx) },
 		nsgotest.Size(1180, 780), nsgotest.ManualFrames())
-	app.Press("id:nav-songs")
 	app.WaitFor("id:track-0", 5*time.Second)
 	app.Press("id:track-0")
 	app.WaitFor("id:playbar-collapse", time.Second)

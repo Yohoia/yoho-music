@@ -1332,7 +1332,7 @@ func (m *model) playbackSide(cx *core.Scope, track *music.Track, side, size core
 	})
 	titleLine := row(core.View{Style: fill, Children: []core.Node{title, detail}})
 	if src := m.sourceByID(track.Source); canLike(src, *track) {
-		titleLine.Children = append(titleLine.Children, iconButton(lucide.Heart, i18n.T("Like/Unlike"), "now-playing-like", func() { m.toggleLike(*track) }))
+		titleLine.Children = append(titleLine.Children, m.likeButton(cx, *track, "now-playing-like", 32, 16))
 	}
 	controls := row(spacer(), m.transport(cx, true), spacer())
 	slider := ui.Slider{Label: i18n.T("Volume"), TestID: "volume", Max: 1,

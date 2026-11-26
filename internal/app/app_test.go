@@ -48,7 +48,6 @@ func TestEmptyLibraryAndSettings(t *testing.T) {
 func TestLibraryPlayback(t *testing.T) {
 	dir := testLibrary(t)
 	app := nsgotest.Start(t, func(cx *core.Scope) core.Node { return newModel(cx, dir).root(cx) }, nsgotest.Size(1180, 780))
-	app.Press("id:nav-songs")
 	app.WaitFor("id:track-0", 5*time.Second)
 	app.Press("id:track-0")
 	app.Press("id:now-playing")
@@ -148,7 +147,6 @@ func TestCollectionDetailCenteredLayout(t *testing.T) {
 	}
 
 	// Wait for local library scan to finish and check songs exist.
-	app.Press("id:nav-songs")
 	app.WaitFor("id:track-0", 5*time.Second)
 
 	// Create a new playlist and verify the centered detail page renders with edit action even when empty.

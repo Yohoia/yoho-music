@@ -416,12 +416,11 @@ func (m *model) subNav(cx *core.Scope, menuBtnRef *core.Ref, openSearch func()) 
 			)
 			brand.Style.Gap = 10
 			items := []core.Node{
-				m.subNavTo(cx, i18n.T("Home"), route{page: "home"}),
-				m.subNavTo(cx, i18n.T("Songs"), route{page: "songs"}),
-				m.subNavTo(cx, i18n.T("Albums"), route{page: "albums"}),
-				m.subNavTo(cx, i18n.T("Artists"), route{page: "artists"}),
-				m.subNavTo(cx, i18n.T("Liked Songs"), route{page: "liked"}),
-				m.subNavTo(cx, i18n.T("Playlists"), route{page: "playlists"}),
+				m.subNavIconTo(cx, lucide.Compass, i18n.T("Home"), route{page: "home"}),
+				m.subNavIconTo(cx, lucide.ListMusic, i18n.T("Playlists"), route{page: "playlists"}),
+				m.subNavIconTo(cx, lucide.Clock4, i18n.T("Recently Played"), route{page: "recent"}),
+				m.subNavIconTo(cx, lucide.Bookmark, i18n.T("Albums"), route{page: "albums"}),
+				m.subNavIconTo(cx, lucide.Heart, i18n.T("Liked Songs"), route{page: "liked"}),
 			}
 			return m.subNavBar(cx, p, menuBtnRef, brand, items, openSearch)
 		}
@@ -450,7 +449,7 @@ func (m *model) subNav(cx *core.Scope, menuBtnRef *core.Ref, openSearch func()) 
 
 func isLocalCategoryPage(page string) bool {
 	switch page {
-	case "home", "songs", "albums", "artists", "liked", "playlists":
+	case "home", "playlists", "recent", "albums", "liked":
 		return true
 	}
 	return false
@@ -467,8 +466,19 @@ func (m *model) subNavBar(cx *core.Scope, p palette, menuBtnRef *core.Ref, brand
 			Background: p.line, Margin: core.Symmetric(0, 6),
 		},
 	}
-	rightTools := row(m.searchIconButton(cx, openSearch), m.accountAvatarButton(cx, p, menuBtnRef))
-	rightTools.Style.Gap = 6
+	marketBtn := m.headerActionButton(p, nil, lucide.Store, i18n.T("Plugin Market"), "nav-plugin-market",
+		func() bool { return m.page.Get().page == "plugin-market" },
+		func() { m.navigate(route{page: "plugin-market"}) })
+	settingsBtn := m.headerActionButton(p, nil, lucide.Settings, i18n.T("Settings"), "settings",
+		func() bool { return m.page.Get().page == "settings" },
+		func() { m.navigate(route{page: "settings"}) })
+	rightTools := row(
+		m.searchIconButton(cx, openSearch),
+		marketBtn,
+		settingsBtn,
+		m.accountAvatarButton(cx, p, menuBtnRef),
+	)
+	rightTools.Style.Gap = 4
 	controls := row(tabs, sep, rightTools)
 	controls.Style.Gap = 2
 	bar := row(brand, spacer(), controls)
@@ -481,10 +491,10 @@ func (m *model) sourceMenuOverlay(cx *core.Scope, menuBtnRef *core.Ref) core.Nod
 	return core.Show{When: m.sourceMenuOpen.Get, Then: func(cx *core.Scope) core.Node {
 		p := colors(cx)
 		closeMenu := func() { m.sourceMenuOpen.Set(false) }
-		option := func(icon glyph, text, sourceID, id string) base.Button {
+		optionRow := func(icon glyph, text, sourceID, id string, trailing core.Node) core.Node {
 			selected := func() bool { return m.source.Get() == sourceID }
 			name := core.Text{Content: text, MaxLines: 1, Style: core.Style{FontSize: 14, FontWeight: core.FontWeightSemibold, Color: p.text, FlexGrow: 1, FlexShrink: 1}}
-			return base.Button{
+			btn := base.Button{
 				OnPress: func(core.PressEvent) {
 					closeMenu()
 					m.selectSource(sourceID)
@@ -493,8 +503,20 @@ func (m *model) sourceMenuOverlay(cx *core.Scope, menuBtnRef *core.Ref) core.Nod
 				TestID:   id,
 				Selected: selected,
 				Style: core.Style{
-					Direction: core.Row, Height: core.Pt(40), AlignItems: core.AlignCenter, Gap: 12,
-					Padding: core.Symmetric(0, 12), CornerRadius: 14,
+					Direction: core.Row, Height: core.Pt(40), AlignItems: core.AlignCenter, Gap: 10,
+					FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0),
+					Padding: core.Edges{Left: 12, Right: 10},
+				},
+				Children: []core.Node{sourceIcon(sourceID, icon, 20, p.text), name},
+			}
+			children := []core.Node{btn}
+			if trailing != nil {
+				children = append(children, trailing)
+			}
+			return core.View{
+				Style: core.Style{
+					Direction: core.Row, Height: core.Pt(40), AlignItems: core.AlignCenter,
+					CornerRadius: 14,
 				},
 				StyleFunc: func() core.Style {
 					if selected() {
@@ -502,18 +524,16 @@ func (m *model) sourceMenuOverlay(cx *core.Scope, menuBtnRef *core.Ref) core.Nod
 					}
 					return core.Style{Hover: &core.Style{Background: p.hover}}
 				},
-				Children: []core.Node{sourceIcon(sourceID, icon, 16, p.text), name},
+				Children: children,
 			}
 		}
 
 		var rows []core.Node
-		rows = append(rows, option(lucide.Library, "Yoho Music", local.ID, "source-local"))
+		rows = append(rows, optionRow(lucide.Library, "Yoho Music", local.ID, "source-local", nil))
 		for _, plug := range m.plugins.Get() {
 			info := plug.Info()
 			source := plug
-			entry := option(lucide.Radio, sourceDisplayName(info), info.ID, "source-"+info.ID)
-			entry.Style.FlexGrow, entry.Style.FlexShrink = 1, 1
-			rows = append(rows, row(entry, core.Dynamic(func(cx *core.Scope) core.Node {
+			trailing := core.Dynamic(func(cx *core.Scope) core.Node {
 				state := m.accountOf(source)
 				if !source.Can("signOut") || state.account == nil && source.Can("account") {
 					return nil
@@ -527,8 +547,8 @@ func (m *model) sourceMenuOverlay(cx *core.Scope, menuBtnRef *core.Ref) core.Nod
 						m.changeAccount(source, false)
 					},
 					Style: core.Style{
-						Width: core.Pt(32), Height: core.Pt(32), CornerRadius: 16,
-						FlexShrink: 0, Margin: core.Edges{Right: 4},
+						Width: core.Pt(30), Height: core.Pt(30), CornerRadius: 15,
+						FlexShrink: 0, Margin: core.Edges{Right: 5},
 						AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
 						Hover: &core.Style{Background: p.hover},
 					},
@@ -538,41 +558,12 @@ func (m *model) sourceMenuOverlay(cx *core.Scope, menuBtnRef *core.Ref) core.Nod
 						}
 						return core.Style{}
 					},
-					Children: []core.Node{ui.Icon(lucide.LogOut, 15, func() core.Color { return p.muted })},
+					Children: []core.Node{ui.Icon(lucide.LogOut, 14, func() core.Color { return p.muted })},
 				}
 				return ui.Tooltip{Text: logout.Label, Trigger: logout}
-			})))
+			})
+			rows = append(rows, optionRow(lucide.Radio, sourceDisplayName(info), info.ID, "source-"+info.ID, trailing))
 		}
-		// Bottom utility section in the account menu: Plugin Market & Settings.
-		menuAction := func(icon glyph, text, shortcut, id string, action func()) core.Node {
-			children := []core.Node{
-				ui.Icon(icon, 15, func() core.Color { return p.muted }),
-				label(text, 13, core.FontWeightMedium, p.text),
-				spacer(),
-			}
-			if shortcut != "" {
-				children = append(children, label(shortcut, 11, core.FontWeightNormal, p.muted))
-			}
-			return base.Button{
-				OnPress: func(core.PressEvent) {
-					closeMenu()
-					action()
-				},
-				Label:  text,
-				TestID: id,
-				Style: core.Style{
-					Direction: core.Row, Height: core.Pt(36), AlignItems: core.AlignCenter, Gap: 10,
-					Padding: core.Symmetric(0, 12), CornerRadius: 12,
-					Hover: &core.Style{Background: p.hover},
-				},
-				Children: children,
-			}
-		}
-		rows = append(rows,
-			core.View{Style: core.Style{Height: core.Pt(1), Background: p.line, Margin: core.Symmetric(4, 10)}},
-			menuAction(lucide.Store, i18n.T("Plugin Market"), "", "nav-plugin-market", func() { m.navigate(route{page: "plugin-market"}) }),
-			menuAction(lucide.Settings, i18n.T("Settings"), "⌘,", "settings", func() { m.navigate(route{page: "settings"}) }),
-		)
 
 		cardBg := p.background
 		shadowAlpha := float32(.11)
@@ -629,7 +620,10 @@ func subNavGlyph(name string) glyph {
 
 func (m *model) subNavIconTo(cx *core.Scope, icon glyph, title string, target route) core.Node {
 	p := colors(cx)
-	isSelected := func() bool { return m.page.Get() == target }
+	isSelected := func() bool {
+		r := m.page.Get()
+		return r == target || target.page == "savedAlbums" && r.page == "savedAlbums"
+	}
 	btn := base.Button{
 		OnPress:  func(core.PressEvent) { m.navigate(target) },
 		Label:    title,
@@ -653,7 +647,10 @@ func (m *model) subNavIconTo(cx *core.Scope, icon glyph, title string, target ro
 }
 
 func (m *model) subNavTo(cx *core.Scope, text string, target route) core.Node {
-	return m.subNavPill(cx, text, "nav-"+target.page+target.id, true, func() { m.navigate(target) }, func() bool { return m.page.Get() == target })
+	return m.subNavPill(cx, text, "nav-"+target.page+target.id, true, func() { m.navigate(target) }, func() bool {
+		r := m.page.Get()
+		return r == target || target.page == "savedAlbums" && r.page == "savedAlbums"
+	})
 }
 
 func (m *model) subNavPill(cx *core.Scope, text, id string, selectable bool, action func(), selected ...func() bool) core.Node {
