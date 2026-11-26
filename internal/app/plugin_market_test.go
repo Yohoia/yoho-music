@@ -64,6 +64,7 @@ func TestMarketDownloadsNetEaseOnRequest(t *testing.T) {
 		app.Press("id:source-menu-trigger")
 		app.Press("id:nav-plugin-market")
 		app.WaitUntil(5*time.Second, func() bool { return app.Exists(button) && app.Enabled(button) })
+		assertBackOnlyHeader(t, app)
 		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) || app.Exists(source) || downloads.Load() != 0 {
 			t.Fatal("browsing downloaded or loaded the plugin")
 		}
@@ -79,6 +80,8 @@ func TestMarketDownloadsNetEaseOnRequest(t *testing.T) {
 		}
 		app.OnAlert = func(core.AlertConfig) int { return 0 }
 		app.Press(button)
+		app.WaitFor("id:market-open-"+plugin.NetEaseSourceID, 5*time.Second)
+		app.Press("id:back")
 		app.Press("id:source-menu-trigger")
 		app.WaitFor(source, 5*time.Second)
 		if _, err := os.Stat(path); err != nil || downloads.Load() != 2 {
@@ -100,6 +103,13 @@ func TestMarketDownloadsNetEaseOnRequest(t *testing.T) {
 			app.WaitFor("id:"+nav, time.Second)
 		}
 		app.WaitFor("id:catalog-sign-in", time.Second)
+		app.Press("id:source-menu-trigger")
+		app.WaitFor(source, time.Second)
+		if app.Exists("id:sign-in") {
+			t.Fatal("the source menu should not offer sign-in")
+		}
+		app.Key("escape")
+		app.Find("id:catalog-sign-in")
 	})
 }
 
@@ -145,7 +155,6 @@ func TestPluginMarket(t *testing.T) {
 	app.WaitForGone("id:market-detail-install-demo", 5*time.Second)
 	app.WaitUntil(5*time.Second, func() bool { return app.Exists(detailSignIn) && app.Enabled(detailSignIn) })
 	app.Press(detailSignIn)
-	app.Press("id:sign-in-confirm")
 	app.WaitFor(detailSignOut, 5*time.Second)
 	app.Press("id:market-detail-close")
 	app.WaitForGone(dialog, time.Second)

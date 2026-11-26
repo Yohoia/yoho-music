@@ -57,6 +57,13 @@ func colors(cx *core.Scope) palette {
 	}
 }
 
+func (p palette) selectableButtonStyle(selected bool) core.Style {
+	if selected {
+		return core.Style{Background: p.button}
+	}
+	return core.Style{Hover: &core.Style{Background: p.hover}}
+}
+
 var fill = core.Style{FlexGrow: 1, FlexShrink: 1}
 
 func label(text string, size core.Points, weight core.FontWeight, tint core.Color) core.Text {
@@ -168,7 +175,7 @@ func (m *model) root(cx *core.Scope) core.Node {
 					core.View{Style: fill, Children: []core.Node{
 						core.Dynamic(func(cx *core.Scope) core.Node { return m.pageView(cx, marketSearchRef) }),
 					}},
-					m.floatingHeader(cx, p, menuBtnRef, openSearch),
+					m.floatingHeader(menuBtnRef, openSearch),
 					m.playerBar(cx),
 				}},
 			core.Show{When: func() bool { return m.stage.Get() != "" }, Then: m.nowPlaying},
@@ -244,18 +251,6 @@ func (m *model) hamburgerButton(p palette, ref *core.Ref) core.Node {
 		func() { m.sourceMenuOpen.Update(func(open bool) bool { return !open }) })
 }
 
-func (m *model) isSubNavVisible() bool {
-	r := m.page.Get()
-	if m.source.Get() == local.ID {
-		return isLocalCategoryPage(r.page)
-	}
-	src := m.activeSource()
-	if src == nil {
-		return false
-	}
-	return isPluginCategoryPage(r, pluginNavEntries(src))
-}
-
 func (m *model) searchIconButton(cx *core.Scope, openSearch func()) core.Node {
 	return m.headerActionButton(colors(cx), nil, lucide.Search, i18n.T("Search"), "search-trigger",
 		m.searchOpen.Get, openSearch)
@@ -274,10 +269,10 @@ func (m *model) hasSubNav() bool {
 	return isPluginCategoryPage(r, pluginNavEntries(src))
 }
 
-func (m *model) floatingHeader(cx *core.Scope, p palette, menuBtnRef *core.Ref, openSearch func()) core.Node {
-	// Progressive frosted glass header backdrop: crisp frosted blur behind topNav/subNav
+func (m *model) headerBackdrop(cx *core.Scope) core.Node {
+	// Progressive frosted glass header backdrop: crisp frosted blur behind navigation
 	// that smoothly dissolves into transparent mist over scrolling content below.
-	frostFade := core.View{
+	return core.View{
 		PointerEvents: core.PointerEventsNone,
 		Style: core.Style{
 			Position: core.Absolute, Top: core.Pt(0), Left: core.Pt(0), Right: core.Pt(0),
@@ -315,59 +310,80 @@ func (m *model) floatingHeader(cx *core.Scope, p palette, menuBtnRef *core.Ref, 
 			}
 		},
 	}
+}
 
+func headerLayer(children ...core.Node) core.View {
 	return core.View{
 		PointerEvents: core.PointerEventsBoxNone,
 		Style:         core.Style{Position: core.Absolute, Top: core.Pt(0), Left: core.Pt(0), Right: core.Pt(0)},
-		Children: []core.Node{
-			frostFade,
-			m.topNav(cx, menuBtnRef, openSearch),
-			core.Show{When: func() bool { return m.error.Get() != "" }, Then: func(cx *core.Scope) core.Node {
-				return row(core.Text{ContentFunc: m.error.Get, Style: core.Style{FlexGrow: 1, FlexShrink: 1, Color: colors(cx).accent, Padding: core.All(12)}},
-					iconButton(lucide.X, i18n.T("Dismiss"), "dismiss", func() { m.error.Set("") }))
-			}},
-			m.subNav(cx, menuBtnRef, openSearch),
-		},
+		Children:      children,
 	}
 }
 
-func (m *model) isDetailBackOnly() bool {
-	if m.isSubNavVisible() {
-		return false
-	}
-	switch m.page.Get().page {
-	case "album", "playlist", "show", "artist", "browse", "playlist-edit", "source-playlist-edit":
-		return true
-	}
-	return false
+func (m *model) floatingHeader(menuBtnRef *core.Ref, openSearch func()) core.Node {
+	return core.Show{When: m.hasSubNav, Then: func(cx *core.Scope) core.Node {
+		titlebar := core.View{Style: core.Style{Height: core.Pt(20)}}
+		titlebar.Desktop.WindowDrag = core.WindowDragOn
+		return headerLayer(m.headerBackdrop(cx), titlebar, m.pageError(false), m.subNav(cx, menuBtnRef, openSearch))
+	}}
 }
 
-func (m *model) topNav(cx *core.Scope, menuBtnRef *core.Ref, openSearch func()) core.Node {
-	p := colors(cx)
-	left := core.Show{When: func() bool { return !m.isSubNavVisible() }, Then: func(*core.Scope) core.Node {
-		back := circleIconButton(p, lucide.ChevronLeft, i18n.T("Back"), "back", 32, 14, true, nil, m.goBack)
-		menu := core.Show{When: func() bool { return !m.isDetailBackOnly() }, Then: func(*core.Scope) core.Node {
-			return m.hamburgerButton(p, menuBtnRef)
-		}}
-		controls := row(menu, back)
-		controls.Style.Gap = 8
-		return controls
-	}}
-	right := core.Show{When: func() bool { return !m.isSubNavVisible() && !m.isDetailBackOnly() }, Then: func(cx *core.Scope) core.Node {
-		return m.searchIconButton(cx, openSearch)
-	}}
+const (
+	detailHeaderHeight core.Points = 60
+	detailBackSize     core.Points = 32
+	detailBackInset                = (detailHeaderHeight - detailBackSize) / 2
+)
 
-	bar := row(left, spacer(), right)
-	bar.Style.Padding = core.Edges{Top: 10, Left: 84, Right: 18}
-	bar.Style.Height = core.Pt(48)
-	bar.StyleFunc = func() core.Style {
-		if m.isSubNavVisible() {
-			return core.Style{Height: core.Pt(20), Padding: core.Edges{Left: 84, Right: 18}}
-		}
-		return core.Style{Height: core.Pt(48), Padding: core.Edges{Top: 10, Left: 84, Right: 18}}
+func backButton(p palette, id string, goBack func()) core.Node {
+	return circleIconButton(p, lucide.ChevronLeft, i18n.T("Back"), id, detailBackSize, 14, true, nil, goBack)
+}
+
+func (m *model) withDetailHeader(cx *core.Scope, body core.Node, wrap func(...core.Node) core.View) core.Node {
+	if m.hasSubNav() {
+		return body
 	}
+	bar := row(backButton(colors(cx), "back", m.goBack))
+	bar.Style.Height = core.Pt(detailHeaderHeight)
 	bar.Desktop.WindowDrag = core.WindowDragOn
-	return bar
+	column := wrap()
+	bar.StyleFunc = func() core.Style {
+		if cx.Env().OS() != core.OSMacOS || cx.Env().FullScreen() {
+			return core.Style{}
+		}
+		width := cx.Env().Window().Width
+		columnWidth := column.Style.Width.Resolve(width)
+		if maximum := column.Style.MaxWidth.Resolve(width); !maximum.IsAuto() {
+			columnWidth = min(columnWidth, maximum)
+		}
+		// The wide content column can reach under the macOS window controls.
+		if (width-columnWidth)/2 < 84 {
+			return core.Style{Padding: core.Edges{Top: 24}}
+		}
+		return core.Style{}
+	}
+	column.Children = []core.Node{bar}
+	return core.View{Style: fill, Children: []core.Node{
+		body,
+		headerLayer(m.headerBackdrop(cx), column),
+		core.View{
+			PointerEvents: core.PointerEventsBoxNone,
+			Style:         core.Style{Position: core.Absolute, Bottom: core.Pt(96), Left: core.Pt(0), Right: core.Pt(0)},
+			Children:      []core.Node{wrap(m.pageError(true))},
+		},
+	}}
+}
+
+func (m *model) pageError(onDetail bool) core.Node {
+	return core.Show{When: func() bool { return m.error.Get() != "" }, Then: func(cx *core.Scope) core.Node {
+		p := colors(cx)
+		message := row(core.Text{ContentFunc: m.error.Get, Style: core.Style{FlexGrow: 1, FlexShrink: 1, Color: p.accent, Padding: core.All(12)}},
+			iconButton(lucide.X, i18n.T("Dismiss"), "dismiss", func() { m.error.Set("") }))
+		if onDetail {
+			message.Style.Background = p.background
+			message.Style.BorderWidth, message.Style.BorderColor, message.Style.CornerRadius = 1, p.line, 10
+		}
+		return message
+	}}
 }
 
 const wordmarkFont = "Snell Roundhand, Bradley Hand, Georgia, serif"
@@ -495,12 +511,7 @@ func (m *model) sourceMenuOverlay(cx *core.Scope, menuBtnRef *core.Ref) core.Nod
 			rows = append(rows, option(lucide.Radio, sourceDisplayName(info), info.ID, "source-"+info.ID))
 		}
 		if src := m.activeSource(); src != nil && src.Info().ID != local.ID {
-			if acct := m.pluginAccountMenuItems(cx, src, closeMenu); acct != nil {
-				rows = append(rows,
-					core.View{Style: core.Style{Height: core.Pt(1), Background: p.line, Margin: core.Symmetric(4, 10)}},
-					acct,
-				)
-			}
+			rows = append(rows, m.pluginAccountMenuItems(cx, src, closeMenu))
 		}
 
 		// Bottom utility section in the hamburger menu: Plugin Market & Settings.
@@ -592,13 +603,9 @@ func (m *model) subNavIconTo(cx *core.Scope, icon glyph, title string, target ro
 		Style: core.Style{
 			Width: core.Pt(30), Height: core.Pt(30), CornerRadius: 15,
 			AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
-			Hover: &core.Style{Background: p.hover},
 		},
 		StyleFunc: func() core.Style {
-			if isSelected() {
-				return core.Style{Background: p.button}
-			}
-			return core.Style{}
+			return p.selectableButtonStyle(isSelected())
 		},
 		Children: []core.Node{ui.Icon(icon, 14, func() core.Color {
 			if isSelected() {
@@ -633,13 +640,9 @@ func (m *model) subNavPill(cx *core.Scope, text, id string, selectable bool, act
 		Style: core.Style{
 			Direction: core.Row, Height: core.Pt(30), AlignItems: core.AlignCenter,
 			Padding: core.Symmetric(0, 12), CornerRadius: 15,
-			Hover: &core.Style{Background: p.hover},
 		},
 		StyleFunc: func() core.Style {
-			if isSelected() {
-				return core.Style{Background: p.button}
-			}
-			return core.Style{}
+			return p.selectableButtonStyle(isSelected())
 		},
 		Children: []core.Node{t},
 	}

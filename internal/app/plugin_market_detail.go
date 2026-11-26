@@ -43,15 +43,13 @@ func (m *model) marketDetailContent(cx *core.Scope, p palette, entry marketPlugi
 	icon, origin := entry.identity()
 	title := label(entry.Name, 22, core.FontWeightBold, p.text)
 	title.MaxLines = 2
-	dismiss := iconButton(lucide.X, i18n.T("Close"), "market-detail-close", close)
-	header := row(marketArtwork(p, icon, 54),
+	navigation := row(backButton(p, "market-detail-close", close))
+	navigation.Style.Padding = core.Edges{Top: detailBackInset, Left: 22, Right: 22}
+	heading := row(marketArtwork(p, icon, 54),
 		core.View{Style: fill.Merge(core.Style{Gap: 4}), Children: []core.Node{
 			title, label(origin, 13, core.FontWeightMedium, p.muted),
-		}}, dismiss)
-	header.Style.Gap = 14
-	header.Style.Padding = core.Symmetric(17, 22)
-	header.Style.Borders.Bottom = 1
-	header.Style.BorderColor = p.line
+		}})
+	heading.Style.Gap = 14
 
 	identity := label(entry.packageID(), 13, core.FontWeightNormal, p.text)
 	identity.Style.FontFamily = core.FontMonospace
@@ -66,8 +64,9 @@ func (m *model) marketDetailContent(cx *core.Scope, p palette, entry marketPlugi
 		summary.Style.LineHeight = 22
 		content = append([]core.Node{summary}, content...)
 	}
+	content = append([]core.Node{heading}, content...)
 	body := core.Scroll{Style: core.Style{FlexShrink: 1, MinHeight: core.Pt(0)},
-		Children: []core.Node{core.View{Style: core.Style{Padding: core.Symmetric(20, 22), Gap: 18}, Children: content}}}
+		Children: []core.Node{core.View{Style: core.Style{Padding: core.Edges{Top: detailBackInset, Bottom: 20, Left: 22, Right: 22}, Gap: 18}, Children: content}}}
 
 	footer := core.Dynamic(func(*core.Scope) core.Node {
 		var account core.Node
@@ -80,7 +79,7 @@ func (m *model) marketDetailContent(cx *core.Scope, p palette, entry marketPlugi
 		actions.Style.BorderColor = p.line
 		return actions
 	})
-	return core.View{Style: core.Style{FlexShrink: 1, MinHeight: core.Pt(0)}, Children: []core.Node{header, body, footer}}
+	return core.View{Style: core.Style{FlexShrink: 1, MinHeight: core.Pt(0)}, Children: []core.Node{navigation, body, footer}}
 }
 
 func (m *model) marketDetailsFacts(cx *core.Scope, p palette, entry marketPlugin) core.Node {

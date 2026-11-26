@@ -18,17 +18,22 @@ import (
 func (m *model) pageView(cx *core.Scope, marketSearchRef *core.Ref) core.Node {
 	r := m.page.Get()
 	if r.page == "settings" {
-		return m.settingsPage(cx)
+		return m.withDetailHeader(cx, m.settingsPage(cx), paperWrap)
 	}
 	if r.page == "plugin-market" {
-		return m.pluginMarket(cx, marketSearchRef)
+		return m.withDetailHeader(cx, m.pluginMarket(cx, marketSearchRef), paperWrap)
 	}
 	if r.page == "playlist-edit" {
 		return m.editPlaylist(cx, m.lib, r.id)
 	}
+	statusWrap := paperWrap
+	switch r.page {
+	case "album", "playlist", "show":
+		statusWrap = collectionWrap
+	}
 	src := m.activeSource()
 	if src == nil {
-		return nil
+		return m.withDetailHeader(cx, core.View{Style: fill}, statusWrap)
 	}
 	if r.page == "source-playlist-edit" {
 		m.sourceVersion.Get()
@@ -38,7 +43,7 @@ func (m *model) pageView(cx *core.Scope, marketSearchRef *core.Ref) core.Node {
 		m.updated.Get()
 		body, err := m.catalogPage(cx, src, r)
 		if err != nil {
-			return m.empty(cx, lucide.CircleAlert, err.Error(), "", nil)
+			return m.withDetailHeader(cx, m.empty(cx, lucide.CircleAlert, err.Error(), "", nil), statusWrap)
 		}
 		return body
 	}
@@ -73,15 +78,15 @@ func (m *model) pageView(cx *core.Scope, marketSearchRef *core.Ref) core.Node {
 	return core.Dynamic(func(cx *core.Scope) core.Node {
 		r := result.Get()
 		if !r.done {
-			return m.empty(cx, lucide.Radio, i18n.T("Loading…"), "", nil)
+			return m.withDetailHeader(cx, m.empty(cx, lucide.Radio, i18n.T("Loading…"), "", nil), statusWrap)
 		}
 		if r.err != nil && !r.data.hasMore() {
 			if errors.Is(r.err, music.ErrSignIn) && src.Can("signIn") {
 				action := button(i18n.T("Sign In"), "catalog-sign-in", lucide.LogIn, func() { m.changeAccount(src, true) })
 				action.Disabled = func() bool { return m.accountOf(src).busy }
-				return m.emptyWithAction(cx, lucide.LogIn, i18n.T("Sign in to continue"), "", action)
+				return m.withDetailHeader(cx, m.emptyWithAction(cx, lucide.LogIn, i18n.T("Sign in to continue"), "", action), statusWrap)
 			}
-			return m.empty(cx, lucide.CircleAlert, r.err.Error(), "", nil)
+			return m.withDetailHeader(cx, m.empty(cx, lucide.CircleAlert, r.err.Error(), "", nil), statusWrap)
 		}
 		var footer core.Node
 		if r.data.hasMore() {
@@ -555,8 +560,13 @@ func (m *model) displayCatalog(cx *core.Scope, src music.Source, d catalogData, 
 	trackOnly := len(d.sections) == 1 && len(tracks) > 0 &&
 		len(d.sections[0].Albums)+len(d.sections[0].Artists)+len(d.sections[0].Playlists)+len(d.sections[0].Shows)+len(d.sections[0].Stations)+len(d.sections[0].Links) == 0
 	if d.album != nil || d.list != nil || d.show != nil || (!d.home && !m.hasSubNav() && trackOnly) {
-		return m.collectionDetail(cx, src, d, tracks, footer)
+		return m.withDetailHeader(cx, m.collectionDetail(cx, src, d, tracks, footer), collectionWrap)
 	}
+	return m.withDetailHeader(cx, m.catalogSections(cx, src, d, tracks, footer), paperWrap)
+}
+
+func (m *model) catalogSections(cx *core.Scope, src music.Source, d catalogData, tracks []music.Track, footer core.Node) core.Node {
+	sourceID := src.Info().ID
 	var actions []core.Node
 	if len(tracks) > 0 && !d.home {
 		actions = append(actions, button(i18n.T("Play"), "play-all", lucide.Play, m.playback(func() { m.player.PlayQueue(tracks, 0) })),
@@ -582,8 +592,9 @@ func (m *model) displayCatalog(cx *core.Scope, src music.Source, d catalogData, 
 			header = descWrap
 		}
 	}
-	topPad := core.Points(46)
-	if m.hasSubNav() {
+	categoryPage := m.hasSubNav()
+	topPad := detailHeaderHeight
+	if categoryPage {
 		topPad = 74
 	}
 	if len(d.sections) == 1 {
@@ -628,7 +639,11 @@ func (m *model) displayCatalog(cx *core.Scope, src music.Source, d catalogData, 
 		body = append(body, items...)
 	}
 	if count == 0 {
-		return core.View{Style: fill, Children: append(body, m.empty(cx, lucide.Music, i18n.T("Nothing here yet"), "", nil))}
+		style := fill
+		if !categoryPage {
+			style.Padding = core.Edges{Top: topPad}
+		}
+		return core.View{Style: style, Children: append(body, m.empty(cx, lucide.Music, i18n.T("Nothing here yet"), "", nil))}
 	}
 	if footer != nil {
 		body = append(body, paperWrap(footer))
@@ -682,8 +697,8 @@ func (m *model) collectionBackdrop(cx *core.Scope, title, coverURL, sourceID str
 		} else {
 			art = core.View{
 				Style: core.Style{
-					Position:  core.Absolute,
-					Top:       core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0), Left: core.Pt(0),
+					Position: core.Absolute,
+					Top:      core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0), Left: core.Pt(0),
 					Gradients: []core.Gradient{coverGradientFor(title)},
 					Opacity:   core.Alpha(.34),
 				},
@@ -1895,10 +1910,11 @@ func (m *model) editPlaylist(cx *core.Scope, src music.Source, id string) core.N
 		remove.Disabled = func() bool { return !ready.Get() || busy.Get() }
 		actions.Children = append(actions.Children, remove)
 	}
-	return core.View{Style: fill, Children: []core.Node{m.pageHeader(cx, title, "", ""),
-		core.View{Style: core.Style{Padding: core.Symmetric(4, 28), Gap: 14, MaxWidth: core.Pt(500)}, Children: []core.Node{
+	form := core.View{Style: fill.Merge(core.Style{Padding: core.Edges{Top: detailHeaderHeight}}), Children: []core.Node{m.pageHeader(cx, title, "", ""),
+		paperWrap(core.View{Style: core.Style{Gap: 14, MaxWidth: core.Pt(500)}, Children: []core.Node{
 			ui.Input{Value: name.Get, OnChange: name.Set, OnSubmit: func(string) { save() }, Disabled: func() bool { return !ready.Get() || busy.Get() },
 				Placeholder: i18n.T("Playlist Name"), TestID: "playlist-name"}, actions,
-		}},
+		}}),
 	}}
+	return m.withDetailHeader(cx, form, paperWrap)
 }

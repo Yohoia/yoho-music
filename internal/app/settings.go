@@ -56,65 +56,274 @@ func (m *model) settingsPage(cx *core.Scope) core.Node {
 	appearance := i18n.T("Appearance")
 	system := i18n.T("System")
 	normalize := i18n.T("Normalize Volume")
-	controls := []core.Node{
-		label(i18n.T("General"), 19, core.FontWeightBold, p.text),
-		settingsRow(cx, appearance, ui.Select[string]{Label: appearance, TestID: "appearance",
-			Options: []ui.Option[string]{{Value: "system", Label: system}, {Value: "light", Label: i18n.T("Light")}, {Value: "dark", Label: i18n.T("Dark")}},
-			Value:   func() string { return m.prefs.Get().Appearance }, OnChange: func(value string) { m.updatePreferences(cx, func(p *preferences) { p.Appearance = value }) }}),
-		settingsRow(cx, language, ui.Select[string]{Label: language, TestID: "language",
+
+	appearanceSeg := settingsSegment(p, "appearance",
+		[]settingsSegOption{
+			{value: "system", label: system},
+			{value: "light", label: i18n.T("Light")},
+			{value: "dark", label: i18n.T("Dark")},
+		},
+		func() string { return m.prefs.Get().Appearance },
+		func(value string) { m.updatePreferences(cx, func(pr *preferences) { pr.Appearance = value }) },
+	)
+
+	playerStyleSeg := settingsSegment(p, "player-style",
+		[]settingsSegOption{
+			{value: "", label: i18n.T("Artwork")},
+			{value: "vinyl", label: i18n.T("Vinyl")},
+			{value: "cassette", label: i18n.T("Cassette")},
+		},
+		func() string { return m.prefs.Get().PlayerStyle },
+		func(value string) { m.updatePreferences(cx, func(pr *preferences) { pr.PlayerStyle = value }) },
+	)
+
+	qualitySeg := settingsSegment(p, "streaming-quality",
+		[]settingsSegOption{
+			{value: "standard", label: i18n.T("Standard")},
+			{value: "high", label: i18n.T("High")},
+			{value: "lossless", label: i18n.T("Lossless")},
+		},
+		func() string { return m.prefs.Get().Quality },
+		func(value string) { m.updatePreferences(cx, func(pr *preferences) { pr.Quality = value }) },
+	)
+
+	appearanceSection := settingsPaperSection(p, appearance,
+		settingsRowWithDesc(cx, appearance, "", appearanceSeg),
+		settingsRowWithDesc(cx, language, "", ui.Select[string]{
+			Label: language, TestID: "language",
 			Options: languageOptions(system),
-			Value:   func() string { return m.prefs.Get().Language }, OnChange: func(value string) { m.updatePreferences(cx, func(p *preferences) { p.Language = value }) }}),
-		settingsRow(cx, normalize, ui.Switch{Label: normalize, TestID: "normalize", Checked: func() bool { return m.prefs.Get().Normalize },
-			OnChange: func(value bool) {
-				m.updatePreferences(cx, func(p *preferences) { p.Normalize = value })
-				m.player.SetVolume(m.prefs.Get().Volume)
-			}}),
-		settingsRow(cx, i18n.T("Player Style"), ui.Select[string]{Label: i18n.T("Player Style"), TestID: "player-style",
-			Options: []ui.Option[string]{{Value: "", Label: i18n.T("Artwork")}, {Value: "vinyl", Label: i18n.T("Vinyl")}, {Value: "cassette", Label: i18n.T("Cassette")}},
-			Value:   func() string { return m.prefs.Get().PlayerStyle }, OnChange: func(value string) { m.updatePreferences(cx, func(p *preferences) { p.PlayerStyle = value }) }}),
-		settingsRow(cx, i18n.T("Streaming Quality"), ui.Select[string]{Label: i18n.T("Streaming Quality"), TestID: "streaming-quality",
-			Options:  []ui.Option[string]{{Value: "standard", Label: i18n.T("Standard")}, {Value: "high", Label: i18n.T("High")}, {Value: "lossless", Label: i18n.T("Lossless")}},
-			Value:    func() string { return m.prefs.Get().Quality },
-			OnChange: func(value string) { m.updatePreferences(cx, func(p *preferences) { p.Quality = value }) }}),
-		m.cacheSettings(cx),
-		m.captionsSettings(cx),
-		settingsRow(cx, i18n.T("Top Player"), ui.Switch{Label: i18n.T("Top Player"), TestID: "notch-enabled",
-			Checked:  func() bool { return m.prefs.Get().NotchEnabled },
-			OnChange: func(on bool) { m.updatePreferences(cx, func(p *preferences) { p.NotchEnabled = on }) }}),
+			Value:   func() string { return m.prefs.Get().Language },
+			OnChange: func(value string) {
+				m.updatePreferences(cx, func(pr *preferences) { pr.Language = value })
+			},
+		}),
+		settingsRowWithDesc(cx, i18n.T("Player Style"), "", playerStyleSeg),
+	)
+
+	playbackRows := []core.Node{
+		settingsRowWithDesc(cx, normalize,
+			i18n.T("Adjust each song's volume by what its plugin measured of it, for them to sound as loud as each other"),
+			ui.Switch{
+				Label: normalize, TestID: "normalize",
+				Checked: func() bool { return m.prefs.Get().Normalize },
+				OnChange: func(value bool) {
+					m.updatePreferences(cx, func(pr *preferences) { pr.Normalize = value })
+					m.player.SetVolume(m.prefs.Get().Volume)
+				},
+			}),
+		settingsRowWithDesc(cx, i18n.T("Streaming Quality"), "", qualitySeg),
+	}
+	if cache := m.cacheSettings(cx); cache != nil {
+		playbackRows = append(playbackRows, cache)
+	}
+	if captions := m.captionsSettings(cx); captions != nil {
+		playbackRows = append(playbackRows, captions)
+	}
+	playbackRows = append(playbackRows,
+		settingsRowWithDesc(cx, i18n.T("Top Player"),
+			i18n.T("A small player at the notch on top of the screen, which opens as the pointer rests on it"),
+			ui.Switch{
+				Label: i18n.T("Top Player"), TestID: "notch-enabled",
+				Checked:  func() bool { return m.prefs.Get().NotchEnabled },
+				OnChange: func(on bool) { m.updatePreferences(cx, func(pr *preferences) { pr.NotchEnabled = on }) },
+			}),
 		core.Show{When: func() bool { return m.prefs.Get().NotchEnabled }, Then: func(cx *core.Scope) core.Node {
 			activity := i18n.T("Show Activity at the Notch")
 			virtual := i18n.T("Show on Displays Without a Notch")
 			return core.View{Children: []core.Node{
-				settingsRow(cx, activity, ui.Switch{Label: activity, TestID: "notch-activity",
+				core.View{Style: core.Style{Height: core.Pt(1), Background: p.line}},
+				settingsRowWithDesc(cx, activity, "", ui.Switch{
+					Label: activity, TestID: "notch-activity",
 					Checked:  func() bool { return m.prefs.Get().NotchActivity },
-					OnChange: func(on bool) { m.updatePreferences(cx, func(p *preferences) { p.NotchActivity = on }) }}),
-				settingsRow(cx, virtual, ui.Switch{Label: virtual, TestID: "notch-virtual",
+					OnChange: func(on bool) { m.updatePreferences(cx, func(pr *preferences) { pr.NotchActivity = on }) },
+				}),
+				core.View{Style: core.Style{Height: core.Pt(1), Background: p.line}},
+				settingsRowWithDesc(cx, virtual, "", ui.Switch{
+					Label: virtual, TestID: "notch-virtual",
 					Checked:  func() bool { return m.prefs.Get().NotchVirtual },
-					OnChange: func(on bool) { m.updatePreferences(cx, func(p *preferences) { p.NotchVirtual = on }) }}),
+					OnChange: func(on bool) { m.updatePreferences(cx, func(pr *preferences) { pr.NotchVirtual = on }) },
+				}),
 			}}
 		}},
-		label(i18n.T("Music Folders"), 19, core.FontWeightBold, p.text),
-		row(button(i18n.T("Add a Music Folder"), "settings-add-folder", lucide.FolderPlus, func() { m.pickMusic(cx) }),
-			button(i18n.T("Rescan"), "rescan", lucide.RefreshCw, m.lib.Rescan)),
-		core.Dynamic(func(cx *core.Scope) core.Node {
-			m.updated.Get()
-			var rows []core.Node
-			for _, folder := range m.lib.Folders() {
-				remove := i18n.T("Remove Folder")
-				rows = append(rows, settingsRow(cx, folder, iconButton(lucide.FolderMinus, remove, "remove-folder", func() {
-					confirm(cx, remove, folder, func() { m.run(func() error { m.lib.RemoveFolder(folder); return nil }) })
-				})))
-			}
-			return core.Group(rows)
-		}),
-		label(i18n.T("Plugins"), 19, core.FontWeightBold, p.text),
-		m.nsgoPluginSettings(cx),
-		row(core.Image{Source: core.ImageSource{Data: settingsIcon}, Style: core.Style{Width: core.Pt(30), Height: core.Pt(30)}},
-			label("Yoho Music "+core.App().Version, 12, core.FontWeightMedium, p.muted)),
+	)
+	playbackSection := settingsPaperSection(p, i18n.T("Playback"), playbackRows...)
+
+	rescanBtn := base.Button{
+		Label:   i18n.T("Rescan"),
+		TestID:  "rescan",
+		OnPress: func(core.PressEvent) { m.lib.Rescan() },
+		Style: core.Style{
+			Direction: core.Row, Height: core.Pt(32), Padding: core.Symmetric(0, 14), CornerRadius: 16,
+			Background: p.sidebar,
+			AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 6,
+			Hover: &core.Style{Background: p.hover},
+		},
+		Children: []core.Node{
+			ui.Icon(lucide.RefreshCw, 13, func() core.Color { return p.text }),
+			label(i18n.T("Rescan"), 12, core.FontWeightMedium, p.text),
+		},
 	}
-	return core.View{Style: fill.Merge(core.Style{Padding: core.Edges{Top: 36}}), Children: []core.Node{m.pageHeader(cx, i18n.T("Settings"), "", ""),
-		core.Scroll{Style: fill, Children: []core.Node{core.View{Style: core.Style{Gap: 15, Padding: core.Edges{Top: 4, Left: 28, Right: 28, Bottom: 100}}, Children: controls}}},
-	}}
+	addFolderBtn := base.Button{
+		Label:   i18n.T("Add a Music Folder"),
+		TestID:  "settings-add-folder",
+		OnPress: func(core.PressEvent) { m.pickMusic(cx) },
+		Style: core.Style{
+			Direction: core.Row, Height: core.Pt(32), Padding: core.Symmetric(0, 16), CornerRadius: 16,
+			Background: p.button, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 6,
+			Hover: &core.Style{Opacity: core.Alpha(.88)},
+		},
+		Children: []core.Node{
+			ui.Icon(lucide.FolderPlus, 13, func() core.Color { return p.onButton }),
+			label(i18n.T("Add a Music Folder"), 12, core.FontWeightSemibold, p.onButton),
+		},
+	}
+	foldersHeader := core.View{
+		Style: core.Style{Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12, Padding: core.Symmetric(12, 4)},
+		Children: []core.Node{
+			core.View{
+				Style: core.Style{FlexGrow: 1, FlexShrink: 1, Gap: 3},
+				Children: []core.Node{
+					label(i18n.T("Music Folders"), 14, core.FontWeightMedium, p.text),
+					label(i18n.T("Add the folders where your music lives"), 12, core.FontWeightNormal, p.muted),
+				},
+			},
+			rescanBtn,
+			addFolderBtn,
+		},
+	}
+	foldersList := core.Dynamic(func(cx *core.Scope) core.Node {
+		m.updated.Get()
+		folders := m.lib.Folders()
+		if len(folders) == 0 {
+			return nil
+		}
+		var rows []core.Node
+		for _, folder := range folders {
+			path := folder
+			remove := i18n.T("Remove Folder")
+			pathText := label(path, 12, core.FontWeightNormal, p.text)
+			pathText.Style.FontFamily = core.FontMonospace
+			pathText.MaxLines = 1
+			item := row(pathText, spacer(), iconButton(lucide.FolderMinus, remove, "remove-folder", func() {
+				confirm(cx, remove, path, func() { m.run(func() error { m.lib.RemoveFolder(path); return nil }) })
+			}))
+			item.Style.Background = p.sidebar
+			item.Style.CornerRadius = 10
+			item.Style.Padding = core.Symmetric(4, 12)
+			rows = append(rows, item)
+		}
+		return core.View{
+			Style:    core.Style{Padding: core.Edges{Left: 4, Right: 4, Bottom: 4}, Gap: 6},
+			Children: rows,
+		}
+	})
+	foldersSection := core.View{Style: core.Style{Gap: 4}, Children: []core.Node{foldersHeader, foldersList}}
+
+	aboutRow := row(
+		core.Image{Source: core.ImageSource{Data: settingsIcon}, Style: core.Style{Width: core.Pt(36), Height: core.Pt(36), CornerRadius: 8}},
+		core.View{
+			Style: core.Style{FlexGrow: 1, FlexShrink: 1, Gap: 2},
+			Children: []core.Node{
+				label("Yoho Music", 14, core.FontWeightSemibold, p.text),
+				func() core.Node {
+					v := label("Version "+core.App().Version, 12, core.FontWeightNormal, p.muted)
+					v.Style.FontFamily = core.FontMonospace
+					return v
+				}(),
+			},
+		},
+	)
+	aboutRow.Style.Gap = 12
+	aboutRow.Style.Padding = core.Symmetric(8, 4)
+
+	header := core.View{
+		Style: core.Style{Gap: 4},
+		Children: []core.Node{
+			label(i18n.T("Settings"), 22, core.FontWeightSemibold, p.text),
+			label(i18n.T("Appearance")+" · "+i18n.T("Playback")+" · "+i18n.T("Music Folders"), 12, core.FontWeightNormal, p.muted),
+		},
+	}
+
+	body := paperWrap(core.View{
+		Style: core.Style{Padding: core.Edges{Top: 62, Bottom: 108}, Gap: 20},
+		Children: []core.Node{
+			header,
+			dashedDivider(p.line),
+			appearanceSection,
+			dashedDivider(p.line),
+			playbackSection,
+			dashedDivider(p.line),
+			foldersSection,
+			dashedDivider(p.line),
+			aboutRow,
+		},
+	})
+	body.TestID = "settings-content"
+	return core.View{
+		Style:    fill.Merge(core.Style{Background: p.background}),
+		Children: []core.Node{core.Scroll{Style: fill, Children: []core.Node{body}}},
+	}
+}
+
+type settingsSegOption struct {
+	value, label string
+}
+
+func settingsSegment(p palette, id string, options []settingsSegOption, value func() string, onChange func(string)) core.Node {
+	items := make([]core.Node, 0, len(options))
+	for _, opt := range options {
+		o := opt
+		selected := func() bool { return value() == o.value }
+		t := core.Text{
+			Content: o.label,
+			Style:   core.Style{FontSize: 12, FontWeight: core.FontWeightMedium, Color: p.muted},
+			StyleFunc: func() core.Style {
+				if selected() {
+					return core.Style{Color: p.onButton}
+				}
+				return core.Style{}
+			},
+		}
+		items = append(items, base.Button{
+			Label:    o.label,
+			Selected: selected,
+			OnPress:  func(core.PressEvent) { onChange(o.value) },
+			Style: core.Style{
+				Height: core.Pt(26), Padding: core.Symmetric(0, 12), CornerRadius: 13,
+				AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+			},
+			StyleFunc: func() core.Style {
+				return p.selectableButtonStyle(selected())
+			},
+			Children: []core.Node{t},
+		})
+	}
+	return core.View{
+		TestID: id,
+		Style: core.Style{
+			Direction: core.Row, AlignItems: core.AlignCenter, Gap: 2,
+			Padding: core.All(3), CornerRadius: 16, Background: p.sidebar,
+		},
+		Children: items,
+	}
+}
+
+func settingsPaperSection(p palette, heading string, rows ...core.Node) core.Node {
+	var children []core.Node
+	for i, r := range rows {
+		if r == nil {
+			continue
+		}
+		if i > 0 && len(children) > 0 {
+			if _, isShow := r.(core.Show); !isShow {
+				children = append(children, core.View{Style: core.Style{Height: core.Pt(1), Background: p.line}})
+			}
+		}
+		children = append(children, r)
+	}
+	title := label(heading, 12, core.FontWeightSemibold, p.muted)
+	title.Style.Padding = core.Edges{Left: 4, Bottom: 4}
+	return core.View{Style: core.Style{Gap: 2}, Children: append([]core.Node{title}, children...)}
 }
 
 // languageOptions lists the languages the listener can pick, after System.
@@ -128,8 +337,22 @@ func languageOptions(system string) []ui.Option[string] {
 }
 
 func settingsRow(cx *core.Scope, name string, control core.Node) core.Node {
-	setting := row(label(name, 13, core.FontWeightMedium, colors(cx).text), spacer(), control)
-	setting.Style.MinHeight = core.Pt(34)
+	return settingsRowWithDesc(cx, name, "", control)
+}
+
+func settingsRowWithDesc(cx *core.Scope, name, desc string, control core.Node) core.Node {
+	p := colors(cx)
+	leftChildren := []core.Node{label(name, 14, core.FontWeightMedium, p.text)}
+	if desc != "" {
+		d := label(desc, 12, core.FontWeightNormal, p.muted)
+		d.Style.LineHeight = 16
+		leftChildren = append(leftChildren, d)
+	}
+	left := core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, Gap: 3}, Children: leftChildren}
+	setting := row(left, control)
+	setting.Style.MinHeight = core.Pt(48)
+	setting.Style.Padding = core.Symmetric(14, 4)
+	setting.Style.Gap = 16
 	return setting
 }
 
@@ -199,38 +422,32 @@ func (m *model) pluginAccountMenuItems(cx *core.Scope, src music.Source, closeMe
 			name.Style.Padding = core.Symmetric(4, 12)
 			rows = append(rows, name)
 		}
-		if state.busy {
+		if state.busy && state.account != nil {
 			busy := label(i18n.T("Checking account…"), 12, core.FontWeightNormal, p.muted)
 			busy.Style.Padding = core.Symmetric(4, 12)
 			rows = append(rows, busy)
-		} else {
-			item := func(icon glyph, text, id string, action func()) core.Node {
-				return base.Button{
-					OnPress: func(core.PressEvent) {
-						closeMenu()
-						action()
-					},
-					Label:  text,
-					TestID: id,
-					Style: core.Style{
-						Direction: core.Row, Height: core.Pt(36), AlignItems: core.AlignCenter, Gap: 10,
-						Padding: core.Symmetric(0, 12), CornerRadius: 12,
-						Hover: &core.Style{Background: p.hover},
-					},
-					Children: []core.Node{ui.Icon(icon, 15, func() core.Color { return p.muted }), label(text, 13, core.FontWeightMedium, p.text)},
-				}
-			}
-			if src.Can("signIn") && state.account == nil {
-				rows = append(rows, item(lucide.LogIn, i18n.T("Sign In"), "sign-in", func() { m.changeAccount(src, true) }))
-			}
-			if src.Can("signOut") && (state.account != nil || !src.Can("account")) {
-				rows = append(rows, item(lucide.LogOut, i18n.T("Sign Out"), "sign-out", func() { m.changeAccount(src, false) }))
-			}
+		} else if !state.busy && src.Can("signOut") && (state.account != nil || !src.Can("account")) {
+			text := i18n.T("Sign Out")
+			rows = append(rows, base.Button{
+				OnPress: func(core.PressEvent) {
+					closeMenu()
+					m.changeAccount(src, false)
+				},
+				Label:  text,
+				TestID: "sign-out",
+				Style: core.Style{
+					Direction: core.Row, Height: core.Pt(36), AlignItems: core.AlignCenter, Gap: 10,
+					Padding: core.Symmetric(0, 12), CornerRadius: 12,
+					Hover: &core.Style{Background: p.hover},
+				},
+				Children: []core.Node{ui.Icon(lucide.LogOut, 15, func() core.Color { return p.muted }), label(text, 13, core.FontWeightMedium, p.text)},
+			})
 		}
 		if len(rows) == 0 {
 			return nil
 		}
-		return core.View{Style: core.Style{Gap: 2}, Children: rows}
+		divider := core.View{Style: core.Style{Height: core.Pt(1), Background: p.line, Margin: core.Symmetric(4, 10)}}
+		return core.View{Style: core.Style{Gap: 2}, Children: append([]core.Node{divider}, rows...)}
 	})
 }
 

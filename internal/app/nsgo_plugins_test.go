@@ -83,6 +83,8 @@ export function stream({id, quality}) {
 		app.Press("id:settings")
 		app.WaitUntil(time.Second, func() bool { return app.Enabled("id:plugin-nsgo-install") })
 		app.Press("id:plugin-nsgo-install")
+		app.WaitFor("id:plugin-open-"+nativeID, 5*time.Second)
+		app.Press("id:back")
 		app.Press("id:source-menu-trigger")
 		app.WaitFor("id:source-"+nativeID, 5*time.Second)
 		app.Press("id:source-" + nativeID)
@@ -110,6 +112,7 @@ export function stream({id, quality}) {
 		app.Type("id:search", "Sign in")
 		app.Submit("id:search")
 		app.WaitFor("text:Please sign in", time.Second)
+		app.Press("id:back")
 		app.Post(func() { m.query.Set("") })
 		app.Settle()
 		app.Press("id:search-trigger")
@@ -122,10 +125,12 @@ export function stream({id, quality}) {
 		if forbidden.Load() {
 			t.Fatal("player followed a redirect outside the plugin's network rules")
 		}
+		app.Press("id:back")
 		app.Press("id:source-menu-trigger")
 		app.Press("id:settings")
 		app.WaitFor("id:plugin-remove-"+nativeID, time.Second)
 		app.Press("id:plugin-remove-" + nativeID)
+		app.WaitFor("id:source-menu-trigger", time.Second)
 		app.Press("id:source-menu-trigger")
 		app.WaitForGone("id:source-"+nativeID, 5*time.Second)
 	})
@@ -137,10 +142,13 @@ func TestNSGoPluginAccount(t *testing.T) {
 	path := signFixture(t, dir, id, `
 import { host, Secrets } from "nsgo";
 
+let attempts = 0;
 export async function signIn({requestId}) {
+  const attempt = ++attempts;
   await host.call("yoho.signInPrompt", {requestId, text: "Scan the demo code", qr: "https://example.test/sign-in"});
   await new Promise(resolve => setTimeout(resolve, 1000));
   await host.call("yoho.signInPrompt", {requestId, text: "Completing sign-in"});
+  if (attempt === 2) throw new Error("The QR code expired.");
   await Secrets.set("session", "test-session");
   return account();
 }
@@ -168,7 +176,6 @@ export function stream() { return null; }
 	start := func() {
 		app.WaitUntil(5*time.Second, func() bool { return app.Exists(marketSignIn) && app.Enabled(marketSignIn) })
 		app.Press(marketSignIn)
-		app.Press("id:sign-in-confirm")
 		app.WaitFor("text:Scan the demo code", time.Second)
 		app.WaitFor("id:sign-in-qr", time.Second)
 	}
@@ -181,6 +188,12 @@ export function stream() { return null; }
 	}
 	start()
 	app.Advance(time.Second)
+	app.WaitFor("id:sign-in-retry", time.Second)
+	app.WaitForGone("id:sign-in-qr", time.Second)
+	app.Press("id:sign-in-retry")
+	app.WaitFor("id:sign-in-qr", time.Second)
+	app.Advance(time.Second)
+	app.WaitForGone("id:sign-in-dialog", time.Second)
 	app.WaitFor("text:Test Listener", time.Second)
 	if len(app.Secrets.Items()) != 1 {
 		t.Fatal("sign-in did not store the credential")
@@ -190,7 +203,6 @@ export function stream() { return null; }
 	demoSignIn := "id:market-sign-in-" + plugin.DemoSourceID
 	app.WaitUntil(5*time.Second, func() bool { return app.Exists(demoSignIn) && app.Enabled(demoSignIn) })
 	app.Press(demoSignIn)
-	app.Press("id:sign-in-confirm")
 	demoSignOut := "id:market-sign-out-" + plugin.DemoSourceID
 	app.WaitFor(demoSignOut, 5*time.Second)
 	app.Press("id:market-open-" + plugin.DemoSourceID)

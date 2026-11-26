@@ -2,14 +2,18 @@ package app
 
 import (
 	"context"
-	"yoho-music/internal/i18n"
 
 	"github.com/nsgo-dev/nsgo/base"
 	"github.com/nsgo-dev/nsgo/core"
 	"github.com/nsgo-dev/nsgo/icons/lucide"
+	"github.com/nsgo-dev/nsgo/ui"
 	"rsc.io/qr"
+	"yoho-music/internal/i18n"
 	"yoho-music/internal/music"
+	"yoho-music/internal/plugin"
 )
+
+const signInQRSize = 216
 
 type signInDialogState struct {
 	source  music.Source
@@ -27,8 +31,12 @@ func (m *model) changeAccount(source music.Source, signingIn bool) {
 		m.runAccount(source, false, nil)
 		return
 	}
-	m.closeSignInDialog()
-	m.signInDialog.Set(signInDialogState{source: source})
+	if current := m.signInDialog.GetUntracked(); current.cancel != nil {
+		current.cancel()
+	}
+	attempt, cancel := context.WithCancel(m.context)
+	m.signInDialog.Set(signInDialogState{source: source, attempt: attempt, cancel: cancel})
+	m.runAccount(source, true, attempt)
 }
 
 func (m *model) closeSignInDialog() {
@@ -52,36 +60,37 @@ func (m *model) signInDialogView(cx *core.Scope) core.Node {
 		if state.source == nil {
 			return nil
 		}
-		message := i18n.T("The plugin will guide you through signing in.")
+		message := i18n.T("Starting sign-in…")
 		switch {
 		case state.problem != "":
 			message = state.problem
 		case state.prompt.Text != "":
 			message = state.prompt.Text
-		case state.attempt != nil:
-			message = i18n.T("Waiting for you to finish signing in…")
 		}
 		children := []core.Node{
 			label(title(), 18, core.FontWeightBold, p.text),
 			label(message, 13, core.FontWeightNormal, p.muted),
 		}
+		var artwork core.Node
 		if state.prompt.QR != "" {
 			code, err := qr.Encode(state.prompt.QR, qr.M)
 			if err == nil {
-				children = append(children, core.View{Style: core.Style{AlignItems: core.AlignCenter}, Children: []core.Node{signInQR(code)}})
+				artwork = signInQR(code)
 			}
 		}
-		actions := row(spacer(), button(i18n.T("Cancel"), "sign-in-cancel", lucide.X, m.closeSignInDialog))
-		if state.attempt == nil {
-			actions.Children = append(actions.Children, button(i18n.T("Sign In"), "sign-in-confirm", lucide.LogIn, func() {
-				current := m.signInDialog.GetUntracked()
-				if current.source != state.source || current.attempt != nil || m.accountOf(state.source).busy {
-					return
-				}
-				current.attempt, current.cancel = context.WithCancel(m.context)
-				current.problem = ""
-				m.signInDialog.Set(current)
-				m.runAccount(state.source, true, current.attempt)
+		if artwork == nil && state.attempt != nil && state.source.Info().ID == plugin.NetEaseSourceID {
+			artwork = ui.Spinner{Variant: ui.SpinnerSpokes, Size: 24, Label: message}
+		}
+		if artwork != nil {
+			children = append(children, core.View{Style: core.Style{Height: core.Pt(signInQRSize), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter},
+				Children: []core.Node{artwork}})
+		}
+		cancel := button(i18n.T("Cancel"), "sign-in-cancel", lucide.X, m.closeSignInDialog)
+		cancel.Variant = ui.ButtonOutline
+		actions := row(spacer(), cancel)
+		if state.problem != "" {
+			actions.Children = append(actions.Children, button(i18n.T("Retry"), "sign-in-retry", lucide.RefreshCw, func() {
+				m.changeAccount(state.source, true)
 			}))
 		}
 		children = append(children, actions)
@@ -93,14 +102,14 @@ func (m *model) signInDialogView(cx *core.Scope) core.Node {
 				m.closeSignInDialog()
 			}
 		},
-		LabelFunc: title, TestID: "sign-in-dialog",
+		LabelFunc: title, TestID: "sign-in-dialog", Animation: core.ModalFade,
 		BackdropStyle: core.Style{Background: core.RGBA(0, 0.35)},
 		PopupStyle:    core.Style{Width: core.Pt(360), Padding: core.All(24), CornerRadius: 18, Background: p.background},
 		Children:      []core.Node{body}}
 }
 
 func signInQR(code *qr.Code) core.Node {
-	const size = 216
+	const size = signInQRSize
 	return core.Canvas{TestID: "sign-in-qr", Label: i18n.T("Sign-in QR Code"), Style: core.Style{Width: core.Pt(size), Height: core.Pt(size)}, Draw: func(d *core.Drawing, _ core.Size) {
 		cell := float32(size / (code.Size + 8))
 		offset := (size - float32(code.Size)*cell) / 2
