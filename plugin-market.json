@@ -3,8 +3,8 @@
     {
       "id": "dev.yoho.music.netease",
       "name": "网易云音乐",
-      "version": "1.0.5",
-      "build": 6,
+      "version": "1.0.14",
+      "build": 15,
       "package": "internal/plugin/bundled/netease/netease.nsgopkg"
     },
     {

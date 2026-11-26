@@ -52,10 +52,16 @@ async function discoveryPlaylists() {
   return body.result.map((value) => playlistEntry(value));
 }
 
-async function discoverySection() {
+async function discoverySection(limit = 0) {
   const title = "推荐歌单";
   try {
-    return { title, playlists: await discoveryPlaylists(), empty: "暂无推荐歌单。" };
+    const playlists = await discoveryPlaylists();
+    return {
+      title,
+      morePage: "discovery",
+      playlists: limit > 0 ? playlists.slice(0, limit) : playlists,
+      empty: "暂无推荐歌单。",
+    };
   } catch (error) {
     if (error.code === "signIn") throw error;
     return { title, morePage: "discovery", empty: "推荐歌单暂时无法加载，可打开详情页重试。" };
@@ -67,39 +73,91 @@ const myMusic = {
   links: [
     { title: "最近一周", subtitle: "听歌排行", page: "record:week" },
     { title: "所有时间", subtitle: "听歌排行", page: "record:all" },
-    { title: "音乐云盘", page: "cloud:0" },
   ],
 };
+
+async function recordPreviewSection(week) {
+  const title = week ? "最近一周" : "所有时间";
+  const morePage = week ? "record:week" : "record:all";
+  try {
+    const { id } = await requireAccount();
+    const body = await api("/api/v1/play/record", { uid: id, type: week ? 1 : 0 });
+    const entries = week ? body.weekData : body.allData;
+    const tracks = items(entries)
+      .filter((entry) => entry.song?.id)
+      .slice(0, 3)
+      .map((entry) => trackEntry(entry.song));
+    return { title, morePage, tracks, empty: "暂无听歌记录。" };
+  } catch (error) {
+    if (error?.code === "signIn") {
+      return { title, morePage, empty: "登录后查看听歌排行。" };
+    }
+    return { title, morePage, empty: "暂无听歌记录。" };
+  }
+}
+
+async function dailySongs() {
+  const body = await api("/api/v3/discovery/recommend/songs");
+  return items(body.data?.dailySongs || body.recommend);
+}
+
+async function dailySection() {
+  let imageUrl = "";
+  let subtitle = "每日精选 · 根据你的口味推荐";
+  try {
+    const [song] = (await dailySongs()).filter((s) => s?.id);
+    if (song) {
+      imageUrl = albumEntry(song.al || song.album).imageUrl;
+      if (song.name) subtitle = "每日推荐｜从「" + song.name + "」听起";
+    }
+  } catch {
+    // Keep the Daily Recommendations card available even before sign-in.
+  }
+  return {
+    links: [
+      { title: "每日推荐", subtitle, page: "daily", imageUrl },
+      { title: "私人雷达", subtitle: "根据你的听歌口味持续发现", page: "radar" },
+      { title: "个性化歌单", subtitle: "猜你喜欢的精选歌单合集", page: "recommendations" },
+      { title: "排行榜", subtitle: "云音乐官方热门榜单精选", page: "charts" },
+    ],
+    stations: [stationList()[0]],
+  };
+}
 
 const forYou = {
   title: "为你推荐",
   links: [
-    { title: "每日推荐", page: "daily" },
-    { title: "私人雷达", page: "radar" },
-    { title: "个性化歌单", page: "recommendations" },
+    { title: "每日推荐", subtitle: "每日精选 · 根据你的口味推荐", page: "daily" },
+    { title: "私人雷达", subtitle: "根据你的听歌口味持续发现", page: "radar" },
+    { title: "个性化歌单", subtitle: "猜你喜欢的精选歌单合集", page: "recommendations" },
   ],
 };
 
 export function navigation() {
   return [
     { title: "发现音乐", builtin: "home" },
-    { builtin: "liked" },
-    { builtin: "playlists" },
-    { builtin: "savedAlbums" },
+    { title: "歌单", page: "playlists-hub" },
     { builtin: "recent" },
-    { builtin: "shows" },
+    { builtin: "savedAlbums", icon: "bookmark" },
+    { builtin: "liked", icon: "heart" },
   ];
 }
 
 export async function home() {
+  await requireAccount();
+  const [hero, discovery, weekRecord, allRecord] = await Promise.all([
+    dailySection(),
+    discoverySection(5),
+    recordPreviewSection(true),
+    recordPreviewSection(false),
+  ]);
   return {
     title: "发现音乐",
     sections: [
-      myMusic,
-      forYou,
-      { title: "私人漫游", stations: stationList() },
-      await discoverySection(),
-      { links: [{ title: "排行榜", page: "charts" }] },
+      hero,
+      discovery,
+      weekRecord,
+      allRecord,
     ],
   };
 }
@@ -135,12 +193,25 @@ async function recordPage(week) {
 }
 
 export async function browse({ page }) {
+  await requireAccount();
   if (page === "my-music" || page === "for-you") {
     const { title, links } = page === "my-music" ? myMusic : forYou;
     return { title, sections: [{ links }] };
   }
   if (page === "charts") return { title: "排行榜", sections: [{ playlists: await charts() }] };
   if (page === "discovery") return { title: "推荐歌单", sections: [{ playlists: await discoveryPlaylists(), empty: "暂无推荐歌单。" }] };
+  if (page === "playlists-hub") {
+    const [mine, discovery] = await Promise.all([
+      playlists()
+        .then((list) => ({ title: "我的歌单", playlists: list, empty: "暂无自建或收藏歌单。" }))
+        .catch((error) => ({
+          title: "我的歌单",
+          empty: error?.code === "signIn" ? "登录后查看我的歌单。" : "我的歌单暂时无法加载。",
+        })),
+      discoverySection(),
+    ]);
+    return { title: "歌单", sections: [mine, discovery] };
+  }
   if (page === "record:week" || page === "record:all") return recordPage(page === "record:week");
   if (page === "radar") {
     const user = await requireAccount();
@@ -148,8 +219,7 @@ export async function browse({ page }) {
     return { title: "私人雷达", sections: [{ tracks: radar.tracks, empty: "网易云音乐暂未返回私人雷达歌曲。" }] };
   }
   if (page === "daily") {
-    const tracks = await api("/api/v3/discovery/recommend/songs");
-    const songs = items(tracks.data?.dailySongs || tracks.recommend);
+    const songs = await dailySongs();
     return { title: "每日推荐", sections: [{ tracks: await detailedTracks(songs), empty: "暂无每日推荐歌曲。" }] };
   }
   if (page === "recommendations") {
@@ -168,7 +238,7 @@ async function rawPlaylist(id, n = pageSize, request = api) {
 }
 
 export async function playlist({ id }) {
-  return loadPlaylist(id, await account());
+  return loadPlaylist(id, await requireAccount());
 }
 
 async function loadPlaylist(id, user) {

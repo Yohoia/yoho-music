@@ -1015,7 +1015,21 @@ func (m *model) playerBar(cx *core.Scope) core.Node {
 	}
 
 	spinAngle := m.playbarSpinAngle(cx)
-	hasTrack := func() bool { return m.playing.Get().track != nil }
+	hasTrack := func() bool {
+		track := m.playing.Get().track
+		if track == nil {
+			return false
+		}
+		if src := m.activeSource(); src != nil && src.Info().ID != local.ID && src.Can("signIn") && m.accountOf(src).account == nil {
+			return false
+		}
+		if track.Source != "" && track.Source != local.ID {
+			if src := m.sourceByID(track.Source); src != nil && src.Can("signIn") && m.accountOf(src).account == nil {
+				return false
+			}
+		}
+		return true
+	}
 
 	// Expanded body (waveform + full controls + collapse button) smoothly fades out during collapse.
 	expandedBody := row(
@@ -1171,11 +1185,15 @@ func (m *model) playerBar(cx *core.Scope) core.Node {
 			},
 		},
 		StyleFunc: func() core.Style {
+			if !hasTrack() && !idleAddVisible() {
+				return core.Style{Opacity: core.Alpha(0)}
+			}
 			bgHex := uint32(0xffffff)
 			if cx.Dark() {
 				bgHex = 0x151517
 			}
 			return core.Style{
+				Opacity: core.Alpha(1),
 				Gradients: []core.Gradient{{
 					Kind:  core.GradientLinear,
 					Angle: 0,

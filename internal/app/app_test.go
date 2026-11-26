@@ -116,3 +116,42 @@ func TestDesktopRestoresSession(t *testing.T) {
 	app.Press("id:now-playing")
 	app.WaitFor("text:Follow the signal", 5*time.Second)
 }
+
+func TestCollectionDetailCenteredLayout(t *testing.T) {
+	dir := testLibrary(t)
+	var m *model
+	app := nsgotest.Start(t, func(cx *core.Scope) core.Node {
+		m = newModel(cx, dir)
+		return m.root(cx)
+	}, nsgotest.Size(1180, 780))
+
+	// Wait for local library scan to finish and check songs exist.
+	app.Press("id:nav-songs")
+	app.WaitFor("id:track-0", 5*time.Second)
+
+	// Create a new playlist and verify the centered detail page renders with edit action even when empty.
+	app.Press("id:nav-playlists")
+	app.Press("id:new-playlist")
+	app.Type("id:playlist-name", "Centered Mix")
+	app.Press("id:save-playlist")
+	app.WaitFor("id:edit-playlist", 2*time.Second)
+	app.Find("text:Centered Mix")
+
+	// Add the local track to the playlist and verify Play, Shuffle, and Track 0 render and play.
+	tracks, err := m.lib.Search("Signal", music.SearchTracks, 0)
+	if err != nil || tracks == nil || len(tracks.Tracks) == 0 {
+		t.Fatalf("expected scanned track, got %+v, %v", tracks, err)
+	}
+	playlists, err := m.lib.Playlists()
+	if err != nil || len(playlists) == 0 {
+		t.Fatalf("expected created playlist, got %+v, %v", playlists, err)
+	}
+	if err := m.lib.AddToPlaylist(playlists[0].ID, []string{tracks.Tracks[0].ID}); err != nil {
+		t.Fatalf("AddToPlaylist: %v", err)
+	}
+	app.WaitFor("id:play-all", 2*time.Second)
+	app.Find("id:shuffle-all")
+	app.WaitFor("id:track-0", 2*time.Second)
+	app.Press("id:track-0")
+	app.WaitFor("id:current-track", 2*time.Second)
+}

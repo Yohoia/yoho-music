@@ -96,12 +96,10 @@ func TestMarketDownloadsNetEaseOnRequest(t *testing.T) {
 			t.Fatal("restarting downloaded the installed plugin again")
 		}
 		app.Press(source)
-		for _, nav := range []string{"nav-home", "nav-liked", "nav-playlists", "nav-savedAlbums", "nav-recent", "nav-shows"} {
+		for _, nav := range []string{"nav-home", "nav-browseplaylists-hub", "nav-recent", "nav-savedAlbums", "nav-liked"} {
 			app.WaitFor("id:"+nav, time.Second)
 		}
-		app.WaitFor("text:最近一周", time.Second)
-		app.WaitFor("text:私人雷达", time.Second)
-		app.WaitFor("id:station-FAMILIAR", time.Second)
+		app.WaitFor("id:catalog-sign-in", time.Second)
 	})
 }
 

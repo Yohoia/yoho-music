@@ -293,9 +293,9 @@ func (m *model) floatingHeader(cx *core.Scope, p palette, menuBtnRef *core.Ref, 
 			},
 		},
 		StyleFunc: func() core.Style {
-			h := core.Pt(56)
+			h := core.Pt(64)
 			if m.hasSubNav() {
-				h = core.Pt(98)
+				h = core.Pt(82)
 			}
 			bgHex := uint32(0xffffff)
 			if cx.Dark() {
@@ -308,7 +308,7 @@ func (m *model) floatingHeader(cx *core.Scope, p palette, menuBtnRef *core.Ref, 
 					Angle: 180,
 					Stops: []core.ColorStop{
 						{Color: core.RGBA(bgHex, .88), At: core.Pct(0)},
-						{Color: core.RGBA(bgHex, .74), At: core.Pct(64)},
+						{Color: core.RGBA(bgHex, .74), At: core.Pct(66)},
 						{Color: core.RGBA(bgHex, 0), At: core.Pct(100)},
 					},
 				}},
@@ -331,21 +331,41 @@ func (m *model) floatingHeader(cx *core.Scope, p palette, menuBtnRef *core.Ref, 
 	}
 }
 
+func (m *model) isDetailBackOnly() bool {
+	if m.isSubNavVisible() {
+		return false
+	}
+	switch m.page.Get().page {
+	case "album", "playlist", "show", "artist", "browse", "playlist-edit", "source-playlist-edit":
+		return true
+	}
+	return false
+}
+
 func (m *model) topNav(cx *core.Scope, menuBtnRef *core.Ref, openSearch func()) core.Node {
 	p := colors(cx)
 	left := core.Show{When: func() bool { return !m.isSubNavVisible() }, Then: func(*core.Scope) core.Node {
 		back := circleIconButton(p, lucide.ChevronLeft, i18n.T("Back"), "back", 32, 14, true, nil, m.goBack)
-		controls := row(m.hamburgerButton(p, menuBtnRef), back)
+		menu := core.Show{When: func() bool { return !m.isDetailBackOnly() }, Then: func(*core.Scope) core.Node {
+			return m.hamburgerButton(p, menuBtnRef)
+		}}
+		controls := row(menu, back)
 		controls.Style.Gap = 8
 		return controls
 	}}
-	right := core.Show{When: func() bool { return !m.isSubNavVisible() }, Then: func(cx *core.Scope) core.Node {
+	right := core.Show{When: func() bool { return !m.isSubNavVisible() && !m.isDetailBackOnly() }, Then: func(cx *core.Scope) core.Node {
 		return m.searchIconButton(cx, openSearch)
 	}}
 
 	bar := row(left, spacer(), right)
-	bar.Style.Padding = core.Edges{Left: 84, Right: 18}
-	bar.Style.Height = core.Pt(36)
+	bar.Style.Padding = core.Edges{Top: 10, Left: 84, Right: 18}
+	bar.Style.Height = core.Pt(48)
+	bar.StyleFunc = func() core.Style {
+		if m.isSubNavVisible() {
+			return core.Style{Height: core.Pt(20), Padding: core.Edges{Left: 84, Right: 18}}
+		}
+		return core.Style{Height: core.Pt(48), Padding: core.Edges{Top: 10, Left: 84, Right: 18}}
+	}
 	bar.Desktop.WindowDrag = core.WindowDragOn
 	return bar
 }
@@ -394,7 +414,11 @@ func (m *model) subNav(cx *core.Scope, menuBtnRef *core.Ref, openSearch func()) 
 		)
 		items := make([]core.Node, 0, len(entries))
 		for _, entry := range entries {
-			items = append(items, m.subNavTo(cx, entry.title, entry.target))
+			if icon := subNavGlyph(entry.icon); icon != nil {
+				items = append(items, m.subNavIconTo(cx, icon, entry.title, entry.target))
+			} else {
+				items = append(items, m.subNavTo(cx, entry.title, entry.target))
+			}
 		}
 		return m.subNavBar(cx, p, menuBtnRef, brand, items, openSearch)
 	})
@@ -545,6 +569,44 @@ func sourceDisplayName(info music.Info) string {
 		return "NetEase Music"
 	}
 	return info.Name
+}
+
+func subNavGlyph(name string) glyph {
+	switch name {
+	case "heart":
+		return lucide.Heart
+	case "bookmark":
+		return lucide.Bookmark
+	}
+	return nil
+}
+
+func (m *model) subNavIconTo(cx *core.Scope, icon glyph, title string, target route) core.Node {
+	p := colors(cx)
+	isSelected := func() bool { return m.page.Get() == target }
+	return base.Button{
+		OnPress:  func(core.PressEvent) { m.navigate(target) },
+		Label:    title,
+		TestID:   "nav-" + target.page + target.id,
+		Selected: isSelected,
+		Style: core.Style{
+			Width: core.Pt(30), Height: core.Pt(30), CornerRadius: 15,
+			AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+			Hover: &core.Style{Background: p.hover},
+		},
+		StyleFunc: func() core.Style {
+			if isSelected() {
+				return core.Style{Background: p.button}
+			}
+			return core.Style{}
+		},
+		Children: []core.Node{ui.Icon(icon, 14, func() core.Color {
+			if isSelected() {
+				return p.onButton
+			}
+			return p.muted
+		})},
+	}
 }
 
 func (m *model) subNavTo(cx *core.Scope, text string, target route) core.Node {

@@ -78,7 +78,7 @@ func TestNetEaseQRLoginAndMedia(t *testing.T) {
 			}
 			body = `{"code":200,"result":{"songCount":80,"songs":[{"id":42,"name":"Fixture track","dt":12000,"ar":[{"id":5,"name":"Artist"}],"al":{"id":6,"name":"Album","picUrl":"http://p1.music.126.net/art.jpg"}}]}}`
 		case "/eapi/v3/song/detail":
-			if fields["c"] != `[{"id":"42"}]` {
+			if fields["c"] != `[{"id":"42"}]` && fields["c"] != `[{"id":"42"},{"id":"43"}]` {
 				return nil, errors.New("incorrect track details batch")
 			}
 			body = `{"code":200,"songs":[{"id":42,"name":"Fixture track","dt":12000,"ar":[{"id":5,"name":"Artist"}],"al":{"id":6,"name":"Album","publishTime":1704038400000}}],"privileges":[{"id":42,"st":0}]}`
@@ -86,10 +86,8 @@ func TestNetEaseQRLoginAndMedia(t *testing.T) {
 			if params.Get("limit") != "24" {
 				return nil, errors.New("incorrect public recommendations limit")
 			}
+			discoveryRequests.Add(1)
 			body = `{"code":200,"result":[{"id":88,"name":"Public mix"}]}`
-			if discoveryRequests.Add(1) == 1 {
-				body = `{"code":500}`
-			}
 		case "/api/v1/play/record":
 			if params.Get("uid") != "123" {
 				return nil, errors.New("listening ranks must use the signed-in account")
@@ -103,7 +101,10 @@ func TestNetEaseQRLoginAndMedia(t *testing.T) {
 				return nil, errors.New("invalid listening rank period")
 			}
 		case "/api/v3/discovery/recommend/songs":
-			body = `{"code":200,"data":{"dailySongs":[{"id":42}]}}`
+			if req.Header.Get("Cookie") != cookie {
+				return nil, errors.New("daily recommendations must use the signed-in account")
+			}
+			body = `{"code":200,"data":{"dailySongs":[{"id":42,"al":{"picUrl":"http://p1.music.126.net/daily-first.jpg"}},{"id":43,"al":{"picUrl":"http://p1.music.126.net/daily-second.jpg"}}]}}`
 		case "/api/v1/discovery/recommend/resource":
 			body = `{"code":200,"recommend":[{"id":99,"name":"Private mix"}]}`
 		case "/api/toplist/detail":
@@ -213,19 +214,20 @@ func TestNetEaseQRLoginAndMedia(t *testing.T) {
 			results <- fmt.Errorf("before sign-in, search returned %v", err)
 			return
 		}
-		home, err := source.Home()
-		if err != nil || home == nil || len(home.Sections) != 5 || home.Sections[3].MorePage != "discovery" {
-			results <- fmt.Errorf("guest home should retain navigation when public recommendations fail: %v, %v", home, err)
+		if _, err := source.Home(); !errors.Is(err, music.ErrSignIn) {
+			results <- fmt.Errorf("before sign-in, home should require sign-in: %v", err)
 			return
 		}
-		recommendations, err := source.Browse("discovery")
-		if err != nil || recommendations == nil || len(recommendations.Sections) != 1 || len(recommendations.Sections[0].Playlists) != 1 ||
-			recommendations.Sections[0].Playlists[0].ID != "88" {
-			results <- fmt.Errorf("guest recommendations did not recover: %v, %v", recommendations, err)
+		if _, err := source.Browse("discovery"); !errors.Is(err, music.ErrSignIn) {
+			results <- fmt.Errorf("before sign-in, discovery should require sign-in: %v", err)
 			return
 		}
-		if _, err := source.Playlist("88"); err != nil {
-			results <- fmt.Errorf("guest could not open a public recommendation: %w", err)
+		if _, err := source.Browse("playlists-hub"); !errors.Is(err, music.ErrSignIn) {
+			results <- fmt.Errorf("before sign-in, playlists-hub should require sign-in: %v", err)
+			return
+		}
+		if _, err := source.Playlist("88"); !errors.Is(err, music.ErrSignIn) {
+			results <- fmt.Errorf("before sign-in, playlist should require sign-in: %v", err)
 			return
 		}
 		if _, err := source.Browse("radar"); !errors.Is(err, music.ErrSignIn) {
@@ -346,6 +348,24 @@ func TestNetEaseQRLoginAndMedia(t *testing.T) {
 }
 
 func checkNetEaseDiscovery(source music.Source) error {
+	home, err := source.Home()
+	if err != nil || home == nil || len(home.Sections) < 2 {
+		return fmt.Errorf("unexpected signed-in home: %v, %v", home, err)
+	}
+	forYou, err := source.Browse("for-you")
+	if err != nil || forYou == nil || len(forYou.Sections) != 1 {
+		return fmt.Errorf("unexpected for-you page: %v, %v", forYou, err)
+	}
+	if len(home.Sections) < 2 || len(home.Sections[0].Links) < 3 || home.Sections[0].Links[0].Page != "daily" ||
+		home.Sections[0].Links[0].ImageURL != "https://p1.music.126.net/daily-first.jpg" {
+		return fmt.Errorf("home first section should show daily feature card with first song cover: %+v", home.Sections)
+	}
+	if len(home.Sections[1].Playlists) == 0 {
+		return fmt.Errorf("home second section should show discovery playlists: %+v", home.Sections[1])
+	}
+	if links := forYou.Sections[0].Links; len(links) != 3 || links[0].Page != "daily" || links[1].Page != "radar" || links[2].Page != "recommendations" {
+		return fmt.Errorf("for-you links should list daily, radar and recommendations: %v", links)
+	}
 	for _, sample := range []struct {
 		page, first string
 	}{

@@ -136,6 +136,7 @@ func settingsRow(cx *core.Scope, name string, control core.Node) core.Node {
 type pluginNavEntry struct {
 	title  string
 	target route
+	icon   string
 }
 
 func pluginNavEntries(src music.Source) []pluginNavEntry {
@@ -160,7 +161,7 @@ func pluginNavEntries(src music.Source) []pluginNavEntry {
 		title := item.Title
 		if item.Page != "" {
 			if title != "" && src.Can("browse") {
-				entries = append(entries, pluginNavEntry{title: title, target: route{page: "browse", id: item.Page}})
+				entries = append(entries, pluginNavEntry{title: title, target: route{page: "browse", id: item.Page}, icon: item.Icon})
 			}
 			continue
 		}
@@ -170,7 +171,7 @@ func pluginNavEntries(src music.Source) []pluginNavEntry {
 		if title == "" {
 			title = names[item.Builtin]
 		}
-		entries = append(entries, pluginNavEntry{title: title, target: route{page: item.Builtin}})
+		entries = append(entries, pluginNavEntry{title: title, target: route{page: item.Builtin}, icon: item.Icon})
 	}
 	return entries
 }

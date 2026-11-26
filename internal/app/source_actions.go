@@ -21,7 +21,8 @@ func (m *model) sourceActionResult(src music.Source, err error) bool {
 }
 
 func (m *model) sourceCatalogActions(cx *core.Scope, src music.Source, data catalogData) []core.Node {
-	if m.page.Get().page == "playlists" && src.Can("createPlaylist") {
+	r := m.page.Get()
+	if (r.page == "playlists" || (r.page == "browse" && r.id == "playlists-hub")) && src.Can("createPlaylist") {
 		return []core.Node{button(i18n.T("New Playlist"), "source-new-playlist", lucide.Plus, func() {
 			m.navigate(route{page: "source-playlist-edit"})
 		})}

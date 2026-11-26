@@ -248,7 +248,7 @@ func loadCatalog(src music.Source, r route) (catalogData, error) {
 		p, err := src.Album(r.id)
 		if p != nil {
 			d.album = &p.Album
-			d.title, d.image, d.sections = p.Album.Name, p.Album.ImageURL, []music.Section{{Tracks: p.Tracks}}
+			d.title, d.subtitle, d.image, d.sections = p.Album.Name, albumSubtitle(p.Album), p.Album.ImageURL, []music.Section{{Tracks: p.Tracks}}
 		}
 		return d, err
 	case "artist":
@@ -261,7 +261,7 @@ func loadCatalog(src music.Source, r route) (catalogData, error) {
 	case "playlist":
 		p, err := src.Playlist(r.id)
 		if p != nil {
-			d.title, d.image, d.sections, d.list = p.Name, p.ImageURL, []music.Section{{Tracks: p.Tracks}}, p
+			d.title, d.subtitle, d.image, d.description, d.sections, d.list = p.Name, p.Owner, p.ImageURL, p.Description, []music.Section{{Tracks: p.Tracks}}, p
 		}
 		return d, err
 	case "playlists":
@@ -546,13 +546,18 @@ func (m *model) playCollection(src music.Source, r route, shuffle bool) {
 }
 
 func (m *model) displayCatalog(cx *core.Scope, src music.Source, d catalogData, footer core.Node) core.Node {
-	var actions []core.Node
 	sourceID := src.Info().ID
 	var tracks []music.Track
 	for _, section := range d.sections {
 		tracks = append(tracks, section.Tracks...)
 	}
 	tracks = withSource(tracks, sourceID)
+	trackOnly := len(d.sections) == 1 && len(tracks) > 0 &&
+		len(d.sections[0].Albums)+len(d.sections[0].Artists)+len(d.sections[0].Playlists)+len(d.sections[0].Shows)+len(d.sections[0].Stations)+len(d.sections[0].Links) == 0
+	if d.album != nil || d.list != nil || d.show != nil || (!d.home && !m.hasSubNav() && trackOnly) {
+		return m.collectionDetail(cx, src, d, tracks, footer)
+	}
+	var actions []core.Node
 	if len(tracks) > 0 && !d.home {
 		actions = append(actions, button(i18n.T("Play"), "play-all", lucide.Play, m.playback(func() { m.player.PlayQueue(tracks, 0) })),
 			button(i18n.T("Shuffle"), "shuffle-all", lucide.Shuffle, m.playback(func() { m.player.PlayShuffled(tracks) })))
@@ -560,32 +565,8 @@ func (m *model) displayCatalog(cx *core.Scope, src music.Source, d catalogData, 
 	if m.page.Get().page == "playlists" && sourceID == local.ID {
 		actions = append(actions, button(i18n.T("New Playlist"), "new-playlist", lucide.Plus, func() { m.navigate(route{page: "playlist-edit"}) }))
 	}
-	if d.list != nil && d.list.Mine && !d.list.Fixed && sourceID == local.ID {
-		actions = append(actions, iconButton(lucide.Pencil, i18n.T("Edit Playlist"), "edit-playlist", func() { m.navigate(route{page: "playlist-edit", id: d.list.ID}) }))
-	}
 	if sourceID != local.ID {
 		actions = append(actions, m.sourceCatalogActions(cx, src, d)...)
-	}
-	if d.show != nil {
-		show := *d.show
-		if src.Can("subscribeShow") {
-			title, icon := i18n.T("Subscribe"), lucide.Plus
-			if show.Subscribed {
-				title, icon = i18n.T("Unsubscribe"), lucide.Check
-			}
-			actions = append(actions, button(title, "subscribe-show", icon, func() {
-				m.changeSource(cx, src, func() error { return src.SubscribeShow(show.ID, !show.Subscribed) })
-			}))
-		}
-		if show.PublisherPage != "" {
-			title := show.Publisher
-			if title == "" {
-				title = i18n.T("Publisher")
-			}
-			actions = append(actions, button(title, "show-publisher", lucide.ArrowUpRight, func() {
-				m.navigate(route{page: "browse", id: show.PublisherPage})
-			}))
-		}
 	}
 	var header core.Node
 	if !d.home || len(actions) > 0 || d.subtitle != "" || d.image != "" {
@@ -601,11 +582,25 @@ func (m *model) displayCatalog(cx *core.Scope, src music.Source, d catalogData, 
 			header = descWrap
 		}
 	}
+	topPad := core.Points(46)
+	if m.hasSubNav() {
+		topPad = 74
+	}
 	if len(d.sections) == 1 {
 		section := d.sections[0]
 		if len(tracks) > 0 && len(section.Albums)+len(section.Artists)+len(section.Playlists)+len(section.Shows)+len(section.Stations)+len(section.Links) == 0 {
 			list := m.trackList(cx, tracks, d.list, false)
-			list.Header, list.Footer = header, footer
+			if header != nil {
+				list.Header = core.View{Style: core.Style{Padding: core.Edges{Top: topPad}}, Children: []core.Node{header}}
+			} else {
+				list.Header = core.View{Style: core.Style{Height: core.Pt(topPad)}}
+			}
+			var footerNodes []core.Node
+			if footer != nil {
+				footerNodes = append(footerNodes, paperWrap(footer))
+			}
+			footerNodes = append(footerNodes, core.View{Style: core.Style{Height: core.Pt(108)}})
+			list.Footer = core.View{Children: footerNodes}
 			return list
 		}
 	}
@@ -614,27 +609,20 @@ func (m *model) displayCatalog(cx *core.Scope, src music.Source, d catalogData, 
 		body = append(body, header)
 	}
 	var count int
-	for i, section := range d.sections {
-		items := m.section(cx, src, section, d.list)
+	for i := 0; i < len(d.sections); i++ {
+		section := d.sections[i]
+		var items []core.Node
+		if d.home && isHomeTrackColumn(section) && i+1 < len(d.sections) && isHomeTrackColumn(d.sections[i+1]) {
+			items = []core.Node{m.homePairedTrackColumns(cx, src, section, d.sections[i+1], d.list)}
+			i++
+		} else {
+			items = m.section(cx, src, section, d.list, d.home)
+		}
 		if len(items) == 0 {
 			continue
 		}
 		if count > 0 || (i > 0 && len(body) > 0) {
-			lineColor := colors(cx).line
-			divider := core.Canvas{
-				Style: core.Style{
-					Height: core.Pt(1),
-					Margin: core.Symmetric(8, 0),
-				},
-				Draw: func(d *core.Drawing, size core.Size) {
-					d.FillFromView(core.PaintColor(lineColor))
-					for x := float32(0); x < float32(size.Width); x += 8 {
-						w := min(float32(4), float32(size.Width)-x)
-						d.FillRect(x, 0, w, 1)
-					}
-				},
-			}
-			body = append(body, paperWrap(divider))
+			body = append(body, paperWrap(dashedDivider(colors(cx).line)))
 		}
 		count += len(items)
 		body = append(body, items...)
@@ -645,11 +633,441 @@ func (m *model) displayCatalog(cx *core.Scope, src music.Source, d catalogData, 
 	if footer != nil {
 		body = append(body, paperWrap(footer))
 	}
-	topPad := core.Points(46)
-	if m.hasSubNav() {
-		topPad = 86
-	}
 	return core.Scroll{Style: fill, Children: []core.Node{core.View{Style: core.Style{Gap: 16, Padding: core.Edges{Top: topPad, Bottom: 108}}, Children: body}}}
+}
+
+func dashedDivider(lineColor core.Color) core.Node {
+	return core.Canvas{
+		Style: core.Style{
+			Height: core.Pt(1),
+			Margin: core.Symmetric(8, 0),
+		},
+		Draw: func(d *core.Drawing, size core.Size) {
+			d.FillFromView(core.PaintColor(lineColor))
+			for x := float32(0); x < float32(size.Width); x += 8 {
+				w := min(float32(4), float32(size.Width)-x)
+				d.FillRect(x, 0, w, 1)
+			}
+		},
+	}
+}
+
+func collectionWrap(children ...core.Node) core.View {
+	return core.View{
+		Style: core.Style{
+			Width: core.Pct(84), MaxWidth: core.Pt(920), AlignSelf: core.AlignCenter,
+		},
+		Children: children,
+	}
+}
+
+func (m *model) collectionBackdrop(cx *core.Scope, title, coverURL, sourceID string) core.Node {
+	return core.Dynamic(func(cx *core.Scope) core.Node {
+		frame := cx.Env().Window()
+		dark := cx.Dark()
+		var art core.Node
+		if coverURL != "" {
+			art = core.Image{
+				SourceFunc:     m.coverSource(cx, coverURL, 512, sourceID),
+				ResizeMode:     core.Cover,
+				BlurRadius:     22,
+				ElementsHidden: true,
+				Style: core.Style{
+					Position: core.Absolute,
+					Left:     core.Pt(-24), Top: core.Pt(-24),
+					Width:  core.Pt(frame.Width + 48),
+					Height: core.Pt(frame.Height + 48),
+				},
+			}
+		} else {
+			art = core.View{
+				Style: core.Style{
+					Position:  core.Absolute,
+					Top:       core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0), Left: core.Pt(0),
+					Gradients: []core.Gradient{coverGradientFor(title)},
+					Opacity:   core.Alpha(.34),
+				},
+			}
+		}
+		veilHex := uint32(0xffffff)
+		topAlpha, bottomAlpha := float32(.66), float32(.88)
+		if dark {
+			veilHex = 0x151517
+			topAlpha, bottomAlpha = .62, .84
+		}
+		veil := core.View{
+			Style: core.Style{
+				Position: core.Absolute,
+				Top:      core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0), Left: core.Pt(0),
+				Gradients: []core.Gradient{{
+					Kind:  core.GradientLinear,
+					Angle: 180,
+					Stops: []core.ColorStop{
+						{Color: core.RGBA(veilHex, topAlpha), At: core.Pct(0)},
+						{Color: core.RGBA(veilHex, bottomAlpha), At: core.Pct(100)},
+					},
+				}},
+			},
+		}
+		return core.View{
+			PointerEvents: core.PointerEventsNone,
+			Style: core.Style{
+				Position: core.Absolute, Top: core.Pt(0), Right: core.Pt(0), Bottom: core.Pt(0), Left: core.Pt(0),
+				Overflow: core.Hidden,
+			},
+			Children: []core.Node{art, veil},
+		}
+	})
+}
+
+func (m *model) collectionDetail(cx *core.Scope, src music.Source, d catalogData, tracks []music.Track, footer core.Node) core.Node {
+	p := colors(cx)
+	sourceID := src.Info().ID
+	dark := cx.Dark()
+
+	coverURL := d.image
+	if coverURL == "" && len(tracks) > 0 {
+		coverURL = tracks[0].Album.ImageURL
+	}
+
+	shadowAlpha := float32(.16)
+	neutralBg := core.RGBA(0xffffff, .62)
+	borderTint := core.RGBA(0x09090b, .06)
+	if dark {
+		shadowAlpha = .42
+		neutralBg = core.RGBA(0xffffff, .10)
+		borderTint = core.RGBA(0xffffff, .10)
+	}
+
+	var coverContent core.Node
+	if coverURL == "" {
+		coverContent = core.View{
+			Style: core.Style{
+				Width: core.Pct(100), Height: core.Pct(100), CornerRadius: 14,
+				Gradients: []core.Gradient{coverGradientFor(d.title)},
+			},
+		}
+	} else {
+		coverContent = core.Image{
+			SourceFunc: m.coverSource(cx, coverURL, 384, sourceID),
+			ResizeMode: core.Cover,
+			Style:      core.Style{Width: core.Pct(100), Height: core.Pct(100), CornerRadius: 14},
+		}
+	}
+	heroCover := core.View{
+		Style: core.Style{
+			Width: core.Pt(186), Height: core.Pt(186), CornerRadius: 14, FlexShrink: 0,
+			BorderWidth: 1, BorderColor: borderTint,
+			ShadowColor: core.RGBA(0x000000, shadowAlpha), ShadowOffset: core.Point{Y: 10}, ShadowRadius: 24,
+		},
+		Children: []core.Node{coverContent},
+	}
+
+	var kindText string
+	switch {
+	case d.album != nil:
+		kindText = i18n.T("Album")
+	case d.list != nil:
+		kindText = i18n.T("Playlist")
+	case d.show != nil:
+		kindText = i18n.T("Podcast")
+	}
+
+	var rightChildren []core.Node
+	if kindText != "" {
+		kind := label(kindText, 12, core.FontWeightSemibold, p.muted)
+		kind.Style.Margin = core.Edges{Bottom: 6}
+		rightChildren = append(rightChildren, kind)
+	}
+	title := label(d.title, 28, core.FontWeightBold, p.text)
+	title.MaxLines = 2
+	rightChildren = append(rightChildren, title)
+
+	var metaParts []string
+	if d.subtitle != "" {
+		metaParts = append(metaParts, d.subtitle)
+	}
+	if len(tracks) > 0 {
+		metaParts = append(metaParts, i18n.Songs(len(tracks)))
+		var total time.Duration
+		for _, t := range tracks {
+			total += t.Length()
+		}
+		if total > 0 {
+			metaParts = append(metaParts, formatTime(total))
+		}
+	}
+	if len(metaParts) > 0 {
+		meta := label(strings.Join(metaParts, " · "), 13, core.FontWeightNormal, p.muted)
+		meta.MaxLines = 1
+		meta.Style.FontVariant = core.FontTabularNums
+		meta.Style.Margin = core.Edges{Top: 6}
+		rightChildren = append(rightChildren, meta)
+	}
+	if d.description != "" {
+		desc := label(d.description, 12, core.FontWeightNormal, p.muted)
+		desc.MaxLines = 2
+		desc.Style.Margin = core.Edges{Top: 4}
+		rightChildren = append(rightChildren, desc)
+	}
+
+	var actionNodes []core.Node
+	if len(tracks) > 0 {
+		playBtn := base.Button{
+			Label:   i18n.T("Play"),
+			TestID:  "play-all",
+			OnPress: func(core.PressEvent) { m.playback(func() { m.player.PlayQueue(tracks, 0) })() },
+			Style: core.Style{
+				Direction: core.Row, Height: core.Pt(36), Padding: core.Symmetric(0, 24),
+				CornerRadius: 18, Background: p.button, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 6,
+				Transition: core.Transition{Duration: 150 * time.Millisecond, Easing: core.EaseOut},
+				Hover:      &core.Style{Opacity: core.Alpha(.88)},
+				Active:     &core.Style{Transform: core.Transform{Scale: 0.97}},
+			},
+			Children: []core.Node{
+				ui.Icon(func() *core.SVG { return playFillSVG }, 12, func() core.Color { return p.onButton }),
+				label(i18n.T("Play"), 13, core.FontWeightSemibold, p.onButton),
+			},
+		}
+		shuffleBtn := base.Button{
+			Label:   i18n.T("Shuffle"),
+			TestID:  "shuffle-all",
+			OnPress: func(core.PressEvent) { m.playback(func() { m.player.PlayShuffled(tracks) })() },
+			Style: core.Style{
+				Direction: core.Row, Height: core.Pt(36), Padding: core.Symmetric(0, 20),
+				CornerRadius: 18, Background: neutralBg,
+				AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 6,
+				Transition: core.Transition{Duration: 150 * time.Millisecond, Easing: core.EaseOut},
+				Hover:      &core.Style{Background: p.hover},
+				Active:     &core.Style{Transform: core.Transform{Scale: 0.97}},
+			},
+			Children: []core.Node{
+				ui.Icon(lucide.Shuffle, 13, func() core.Color { return p.text }),
+				label(i18n.T("Shuffle"), 13, core.FontWeightMedium, p.text),
+			},
+		}
+		actionNodes = append(actionNodes, playBtn, shuffleBtn)
+	}
+	if d.list != nil && d.list.Mine && !d.list.Fixed && sourceID == local.ID {
+		actionNodes = append(actionNodes, iconButton(lucide.Pencil, i18n.T("Edit Playlist"), "edit-playlist", func() {
+			m.navigate(route{page: "playlist-edit", id: d.list.ID})
+		}))
+	}
+	if sourceID != local.ID {
+		actionNodes = append(actionNodes, m.sourceCatalogActions(cx, src, d)...)
+	}
+	if d.show != nil {
+		show := *d.show
+		if src.Can("subscribeShow") {
+			subTitle, icon := i18n.T("Subscribe"), lucide.Plus
+			if show.Subscribed {
+				subTitle, icon = i18n.T("Unsubscribe"), lucide.Check
+			}
+			actionNodes = append(actionNodes, button(subTitle, "subscribe-show", icon, func() {
+				m.changeSource(cx, src, func() error { return src.SubscribeShow(show.ID, !show.Subscribed) })
+			}))
+		}
+		if show.PublisherPage != "" {
+			pubTitle := show.Publisher
+			if pubTitle == "" {
+				pubTitle = i18n.T("Publisher")
+			}
+			actionNodes = append(actionNodes, button(pubTitle, "show-publisher", lucide.ArrowUpRight, func() {
+				m.navigate(route{page: "browse", id: show.PublisherPage})
+			}))
+		}
+	}
+	if len(actionNodes) > 0 {
+		rightChildren = append(rightChildren, core.View{
+			Style: core.Style{
+				Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter,
+				Gap: 10, Margin: core.Edges{Top: 16},
+			},
+			Children: actionNodes,
+		})
+	}
+
+	hero := collectionWrap(core.View{
+		Style: core.Style{
+			Direction: core.Row, AlignItems: core.AlignEnd, Gap: 28,
+			Padding: core.Edges{Top: 68, Bottom: 28},
+		},
+		Children: []core.Node{
+			heroCover,
+			core.View{
+				Style:    core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), JustifyContent: core.JustifyEnd, Padding: core.Edges{Bottom: 4}},
+				Children: rightChildren,
+			},
+		},
+	})
+
+	var content core.Node
+	if len(tracks) == 0 {
+		content = core.View{
+			Style:    fill,
+			Children: []core.Node{hero, m.empty(cx, lucide.Music, i18n.T("Nothing here yet"), "", nil)},
+		}
+	} else {
+		list := core.List{
+			Count: func() int { return len(tracks) }, EstimatedSize: 56, Style: fill,
+			Key: func(i int) any { return fmt.Sprintf("%d:%s:%s", i, tracks[i].Source, tracks[i].ID) },
+			Row: func(cx *core.Scope, cell core.ListRow) core.Node {
+				return core.Dynamic(func(cx *core.Scope) core.Node {
+					i := cell.Index()
+					if i < 0 || i >= len(tracks) {
+						return nil
+					}
+					return m.collectionSongRow(cx, tracks[i], i, d.list, func() {
+						m.player.PlayTrack(tracks, i)
+					})
+				})
+			},
+		}
+		list.Header = hero
+		var footerNodes []core.Node
+		if footer != nil {
+			footerNodes = append(footerNodes, collectionWrap(footer))
+		}
+		footerNodes = append(footerNodes, core.View{Style: core.Style{Height: core.Pt(108)}})
+		list.Footer = core.View{Children: footerNodes}
+		content = list
+	}
+
+	return core.View{
+		Style:    fill,
+		Children: []core.Node{m.collectionBackdrop(cx, d.title, coverURL, sourceID), content},
+	}
+}
+
+func (m *model) collectionSongRow(cx *core.Scope, track music.Track, index int, list *music.Playlist, play func()) core.Node {
+	p := colors(cx)
+	dark := cx.Dark()
+	activeBg := core.RGBA(0xffffff, .58)
+	if dark {
+		activeBg = core.RGBA(0xffffff, .10)
+	}
+	isPlaying := func() bool {
+		cur := m.playing.Get().track
+		return cur != nil && cur.ID == track.ID && cur.Source == track.Source
+	}
+
+	num := core.Text{
+		ContentFunc: func() string {
+			if isPlaying() && m.playing.Get().playing {
+				return "▶"
+			}
+			return fmt.Sprint(index + 1)
+		},
+		Style: core.Style{Width: core.Pt(24), FontSize: 13, FontVariant: core.FontTabularNums, TextAlign: core.TextAlignCenter, Color: p.muted, FlexShrink: 0},
+		StyleFunc: func() core.Style {
+			if isPlaying() {
+				return core.Style{Color: p.text, FontWeight: core.FontWeightSemibold}
+			}
+			return core.Style{}
+		},
+	}
+
+	var thumb core.Node
+	thumbFace := core.Style{
+		Width: core.Pt(40), Height: core.Pt(40), CornerRadius: 6, FlexShrink: 0,
+		Background: p.sidebar, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+	}
+	if track.Album.ImageURL == "" {
+		thumb = core.View{Style: thumbFace, Children: []core.Node{ui.Icon(lucide.Music, 15, func() core.Color { return p.muted })}}
+	} else {
+		thumb = core.Image{SourceFunc: m.coverSource(cx, track.Album.ImageURL, 80, track.Source), Style: thumbFace, ResizeMode: core.Cover}
+	}
+
+	title := core.Text{
+		Content:  track.Name,
+		MaxLines: 1,
+		Style:    core.Style{FontSize: 14, FontWeight: core.FontWeightMedium, Color: p.text},
+		StyleFunc: func() core.Style {
+			if isPlaying() {
+				return core.Style{FontWeight: core.FontWeightSemibold}
+			}
+			return core.Style{}
+		},
+	}
+	titleStackChildren := []core.Node{title}
+	if artists := track.ArtistNames(); artists != "" {
+		artist := label(artists, 12, core.FontWeightNormal, p.muted)
+		artist.MaxLines = 1
+		titleStackChildren = append(titleStackChildren, artist)
+	}
+	titleStack := core.View{
+		Style:    core.Style{FlexGrow: 1.35, FlexShrink: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0), Gap: 2, Padding: core.Edges{Right: 12}},
+		Children: titleStackChildren,
+	}
+
+	albumCol := core.View{
+		Style: core.Style{FlexGrow: 1, FlexShrink: 1, FlexBasis: core.Pt(0), MinWidth: core.Pt(0), Padding: core.Edges{Right: 12}},
+		Children: []core.Node{func() core.Node {
+			al := label(track.Album.Name, 13, core.FontWeightNormal, p.muted)
+			al.MaxLines = 1
+			return al
+		}()},
+	}
+
+	dur := label(formatTime(track.Length()), 13, core.FontWeightNormal, p.muted)
+	dur.Style.FontVariant = core.FontTabularNums
+	dur.Style.Width = core.Pt(44)
+	dur.Style.TextAlign = core.TextAlignEnd
+	dur.Style.FlexShrink = 0
+
+	mainBtn := base.Button{
+		Label:   track.Name,
+		TestID:  "track-" + fmt.Sprint(index),
+		OnPress: func(core.PressEvent) { m.playback(play)() },
+		Style: core.Style{
+			Direction: core.Row, AlignItems: core.AlignCenter, Gap: 14,
+			FlexGrow: 1, FlexShrink: 1, Height: core.Pt(54),
+			Padding: core.Symmetric(0, 10), CornerRadius: 8,
+			Hover: &core.Style{Background: p.hover},
+		},
+		StyleFunc: func() core.Style {
+			if isPlaying() {
+				return core.Style{Background: activeBg}
+			}
+			return core.Style{}
+		},
+		Children: []core.Node{num, thumb, titleStack, albumCol, dur},
+	}
+
+	menuRef := &core.Ref{}
+	entry := row(mainBtn)
+	source := m.sourceByID(track.Source)
+	if canLike(source, track) {
+		like := iconButton(lucide.Heart, i18n.T("Like Song"), "like-"+fmt.Sprint(index), func() { m.toggleLike(track) })
+		like.Size, like.IconSize = 28, 14
+		if source == m.lib {
+			like.Tint = func() core.Color {
+				m.updated.Get()
+				liked, _ := m.lib.IsLiked([]string{track.ID})
+				if liked[track.ID] {
+					return p.text
+				}
+				return p.muted
+			}
+		}
+		entry.Children = append(entry.Children, like)
+	}
+	entry.Children = append(entry.Children, base.Button{
+		Ref: menuRef, Label: i18n.T("Track Options"), TestID: "track-menu-" + fmt.Sprint(index),
+		Style:    core.Style{Width: core.Pt(28), Height: core.Pt(28), AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, CornerRadius: 6, Hover: &core.Style{Background: p.hover}},
+		Children: []core.Node{ui.Icon(lucide.Ellipsis, 14, func() core.Color { return p.muted })},
+		OnPress: func(event core.PressEvent) {
+			at := event.PagePosition
+			if bounds, ok := menuRef.Bounds(); ok {
+				at = core.Point{X: bounds.Origin.X, Y: bounds.Origin.Y + bounds.Size.Height}
+			}
+			m.trackOptions(cx, track, index, list, at)
+		},
+	})
+	entry.OnContextMenu = func(event core.ContextMenuEvent) { m.trackOptions(cx, track, index, list, event.PagePosition) }
+	entry.Style.Gap = 2
+	entry.Style.Padding = core.Symmetric(1, 0)
+	return collectionWrap(entry)
 }
 
 func albumSubtitle(album music.Album) string {
@@ -684,20 +1102,32 @@ func (m *model) changeSource(cx *core.Scope, src music.Source, fn func() error) 
 	}()
 }
 
-func (m *model) section(cx *core.Scope, src music.Source, section music.Section, list *music.Playlist) []core.Node {
+func (m *model) section(cx *core.Scope, src music.Source, section music.Section, list *music.Playlist, home bool) []core.Node {
 	p := colors(cx)
 	var items []core.Node
 	if section.Title != "" {
-		header := row(label(section.Title, 14, core.FontWeightNormal, p.muted), spacer())
+		var header core.Node
 		if section.MorePage != "" {
-			more := base.Button{
-				Label:    i18n.T("Show All"),
-				TestID:   "show-" + section.MorePage,
-				OnPress:  func(core.PressEvent) { m.navigate(route{page: "browse", id: section.MorePage}) },
-				Style:    core.Style{Padding: core.Symmetric(2, 4), Hover: &core.Style{Background: p.hover}},
-				Children: []core.Node{label(i18n.T("Show All")+" ↗", 13, core.FontWeightNormal, p.muted)},
+			titleBtn := base.Button{
+				Label:   section.Title,
+				TestID:  "show-" + section.MorePage,
+				OnPress: func(core.PressEvent) { m.navigate(route{page: "browse", id: section.MorePage}) },
+				Style: core.Style{
+					Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4,
+					Padding:    core.Symmetric(2, 0),
+					Transition: core.Transition{Duration: 150 * time.Millisecond, Easing: core.EaseOut},
+					Hover:      &core.Style{Opacity: core.Alpha(.72)},
+				},
+				Children: []core.Node{
+					label(section.Title, 16, core.FontWeightSemibold, p.text),
+					ui.Icon(lucide.ChevronRight, 16, func() core.Color { return p.muted }),
+				},
 			}
-			header.Children = append(header.Children, more)
+			header = row(titleBtn, spacer())
+		} else if home {
+			header = row(label(section.Title, 16, core.FontWeightSemibold, p.text), spacer())
+		} else {
+			header = row(label(section.Title, 14, core.FontWeightNormal, p.muted), spacer())
 		}
 		items = append(items, paperWrap(header))
 	}
@@ -720,11 +1150,26 @@ func (m *model) section(cx *core.Scope, src music.Source, section music.Section,
 	for _, show := range section.Shows {
 		cards = append(cards, m.tile(cx, src, show.Name, show.Publisher, show.ImageURL, route{page: "show", id: show.ID}, false))
 	}
+	heroFeatureRow := home && section.Title == "" && len(section.Albums) == 0 && len(section.Artists) == 0 && len(section.Playlists) == 0 && len(section.Shows) == 0
 	for _, link := range section.Links {
-		cards = append(cards, m.tile(cx, src, link.Title, link.Subtitle, link.ImageURL, route{page: "browse", id: link.Page}, false))
+		if heroFeatureRow {
+			l := link
+			cards = append(cards, m.featureTile(cx, l.Title, l.Subtitle, l.ImageURL, l.Page, func() {
+				m.navigate(route{page: "browse", id: l.Page})
+			}))
+		} else {
+			cards = append(cards, m.tile(cx, src, link.Title, link.Subtitle, link.ImageURL, route{page: "browse", id: link.Page}, false))
+		}
 	}
 	for _, station := range section.Stations {
-		cards = append(cards, button(station.Name, "station-"+station.ID, lucide.Radio, func() { m.playStation(src, station) }))
+		if heroFeatureRow {
+			st := station
+			cards = append(cards, m.featureTile(cx, st.Name, st.Description, st.ImageURL, "station:"+st.ID, func() {
+				m.playStation(src, st)
+			}))
+		} else {
+			cards = append(cards, button(station.Name, "station-"+station.ID, lucide.Radio, func() { m.playStation(src, station) }))
+		}
 	}
 	if len(cards) > 0 {
 		grid := core.View{
@@ -740,7 +1185,23 @@ func (m *model) section(cx *core.Scope, src music.Source, section music.Section,
 	}
 	if len(section.Tracks) > 0 {
 		tracks := withSource(section.Tracks, src.Info().ID)
-		if len(tracks) > 12 {
+		if home {
+			limit := min(len(tracks), 6)
+			gridItems := make([]core.Node, 0, limit)
+			for i := 0; i < limit; i++ {
+				gridItems = append(gridItems, m.homeTrackCard(cx, tracks, i, list))
+			}
+			trackGrid := core.View{
+				Style: core.Style{
+					Display:             core.DisplayGrid,
+					GridTemplateColumns: core.GridTracks("repeat(2, minmax(0, 1fr))"),
+					ColumnGap:           28,
+					RowGap:              14,
+				},
+				Children: gridItems,
+			}
+			items = append(items, paperWrap(trackGrid))
+		} else if len(tracks) > 12 {
 			compact := m.trackList(cx, tracks, list, false)
 			compact.Style = core.Style{Height: core.Pt(378)}
 			items = append(items, compact)
@@ -757,6 +1218,244 @@ func (m *model) section(cx *core.Scope, src music.Source, section music.Section,
 		items = append(items, paperWrap(emptyText))
 	}
 	return items
+}
+
+type featureCardStyle struct {
+	topA, topB uint32
+	band       uint32
+	icon       glyph
+}
+
+func featureStyleFor(key string) featureCardStyle {
+	switch {
+	case key == "daily":
+		return featureCardStyle{topA: 0x4b5563, topB: 0x1f2937, band: 0x3f4145, icon: lucide.Calendar}
+	case key == "radar":
+		return featureCardStyle{topA: 0x99e2d0, topB: 0x489b84, band: 0x67b398, icon: lucide.Radio}
+	case key == "recommendations":
+		return featureCardStyle{topA: 0x4b749f, topB: 0x1d3f66, band: 0x1e4369, icon: lucide.Heart}
+	case strings.HasPrefix(key, "station:"):
+		return featureCardStyle{topA: 0xd9b99b, topB: 0x8f6b4b, band: 0xb18f6c, icon: lucide.Radio}
+	case key == "charts":
+		return featureCardStyle{topA: 0x6b6d62, topB: 0x353730, band: 0x44453d, icon: lucide.ListMusic}
+	default:
+		return featureCardStyle{topA: 0x4f46e5, topB: 0x1e1b4b, band: 0x312e81, icon: lucide.Music}
+	}
+}
+
+func (m *model) featureTile(cx *core.Scope, title, subtitle, image, key string, action func()) core.Node {
+	theme := featureStyleFor(key)
+	smooth := core.Curve{X1: 0.22, Y1: 1, X2: 0.36, Y2: 1}
+	shadowAlpha := float32(.16)
+	if cx.Dark() {
+		shadowAlpha = .40
+	}
+
+	var bg core.Node
+	if image != "" {
+		bg = core.Image{
+			SourceFunc: m.coverSource(cx, image, 360, m.source.GetUntracked()),
+			ResizeMode: core.Cover,
+			Style:      core.Style{Width: core.Pct(100), Height: core.Pct(100)},
+		}
+	} else {
+		bg = core.View{
+			Style: core.Style{
+				Width: core.Pct(100), Height: core.Pct(100),
+				Gradients: []core.Gradient{core.LinearGradient(145, core.RGB(theme.topA), core.RGB(theme.topB))},
+			},
+		}
+	}
+
+	topScrim := core.View{
+		PointerEvents: core.PointerEventsNone,
+		Style: core.Style{
+			Position: core.Absolute, Top: core.Pt(0), Left: core.Pt(0), Right: core.Pt(0), Height: core.Pct(55),
+			Gradients: []core.Gradient{{
+				Kind:  core.GradientLinear,
+				Angle: 180,
+				Stops: []core.ColorStop{
+					{Color: core.RGBA(0x000000, .44), At: core.Pct(0)},
+					{Color: core.RGBA(0x000000, 0), At: core.Pct(100)},
+				},
+			}},
+		},
+	}
+
+	titleText := core.Text{
+		Content:  title,
+		MaxLines: 1,
+		Style:    core.Style{FontSize: 16, FontWeight: core.FontWeightBold, Color: core.RGB(0xffffff), FlexShrink: 1},
+	}
+	titleOverlay := core.View{
+		PointerEvents: core.PointerEventsNone,
+		Style: core.Style{
+			Position: core.Absolute, Top: core.Pt(11), Left: core.Pt(12), Right: core.Pt(12),
+			Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
+		},
+		Children: []core.Node{
+			ui.Icon(theme.icon, 15, func() core.Color { return core.RGB(0xffffff) }),
+			titleText,
+		},
+	}
+
+	upper := core.View{
+		Style:    core.Style{Width: core.Pct(100), AspectRatio: 1, Overflow: core.Hidden},
+		Children: []core.Node{bg, topScrim, titleOverlay},
+	}
+
+	caption := subtitle
+	if caption == "" {
+		caption = title
+	}
+	captionText := core.Text{
+		Content:  caption,
+		MaxLines: 2,
+		Style:    core.Style{FontSize: 12, FontWeight: core.FontWeightMedium, LineHeight: 16, Color: core.RGBA(0xffffff, .94)},
+	}
+	lower := core.View{
+		Style: core.Style{
+			Height: core.Pt(54), Padding: core.Symmetric(8, 12),
+			Background: core.RGB(theme.band), JustifyContent: core.JustifyCenter,
+		},
+		Children: []core.Node{captionText},
+	}
+
+	return base.Button{
+		Label:   title,
+		OnPress: func(core.PressEvent) { action() },
+		Style: core.Style{
+			Width: core.Pct(100), CornerRadius: 13, Overflow: core.Hidden,
+			Transition: core.Transition{Duration: 240 * time.Millisecond, Easing: smooth},
+			Hover: &core.Style{
+				Transform:    core.Transform{Scale: 1.02},
+				ShadowColor:  core.RGBA(0x000000, shadowAlpha),
+				ShadowOffset: core.Point{Y: 8},
+				ShadowRadius: 18,
+			},
+			Active: &core.Style{Transform: core.Transform{Scale: 0.98}},
+		},
+		Children: []core.Node{upper, lower},
+	}
+}
+
+func isHomeTrackColumn(s music.Section) bool {
+	return s.Title != "" && s.MorePage != "" &&
+		len(s.Albums)+len(s.Artists)+len(s.Playlists)+len(s.Shows)+len(s.Stations)+len(s.Links) == 0 &&
+		(len(s.Tracks) > 0 || s.Empty != "")
+}
+
+func (m *model) homePairedTrackColumns(cx *core.Scope, src music.Source, left, right music.Section, list *music.Playlist) core.Node {
+	p := colors(cx)
+	buildCol := func(sec music.Section) core.Node {
+		titleBtn := base.Button{
+			Label:   sec.Title,
+			TestID:  "show-" + sec.MorePage,
+			OnPress: func(core.PressEvent) { m.navigate(route{page: "browse", id: sec.MorePage}) },
+			Style: core.Style{
+				Direction: core.Row, AlignItems: core.AlignCenter, Gap: 4,
+				Padding:    core.Symmetric(2, 0),
+				Transition: core.Transition{Duration: 150 * time.Millisecond, Easing: core.EaseOut},
+				Hover:      &core.Style{Opacity: core.Alpha(.72)},
+			},
+			Children: []core.Node{
+				label(sec.Title, 16, core.FontWeightSemibold, p.text),
+				ui.Icon(lucide.ChevronRight, 16, func() core.Color { return p.muted }),
+			},
+		}
+		colChildren := []core.Node{row(titleBtn, spacer())}
+		if len(sec.Tracks) > 0 {
+			tracks := withSource(sec.Tracks, src.Info().ID)
+			limit := min(len(tracks), 3)
+			rows := make([]core.Node, 0, limit)
+			for i := 0; i < limit; i++ {
+				rows = append(rows, m.homeTrackCard(cx, tracks, i, list))
+			}
+			colChildren = append(colChildren, core.View{Style: core.Style{Gap: 10}, Children: rows})
+		} else if sec.Empty != "" {
+			empty := label(sec.Empty, 13, core.FontWeightNormal, p.muted)
+			empty.Style.Padding = core.Edges{Top: 6}
+			colChildren = append(colChildren, empty)
+		}
+		return core.View{
+			Style:    core.Style{MinWidth: core.Pt(0), Gap: 12},
+			Children: colChildren,
+		}
+	}
+	return paperWrap(core.View{
+		Style: core.Style{
+			Display:             core.DisplayGrid,
+			GridTemplateColumns: core.GridTracks("repeat(2, minmax(0, 1fr))"),
+			ColumnGap:           28,
+			AlignItems:          core.AlignStart,
+		},
+		Children: []core.Node{buildCol(left), buildCol(right)},
+	})
+}
+
+func (m *model) homeTrackCard(cx *core.Scope, tracks []music.Track, index int, list *music.Playlist) core.Node {
+	p := colors(cx)
+	track := tracks[index]
+	isPlaying := func() bool {
+		cur := m.playing.Get().track
+		return cur != nil && cur.ID == track.ID && cur.Source == track.Source
+	}
+
+	thumbFace := core.Style{
+		Width: core.Pt(56), Height: core.Pt(56), CornerRadius: 8, FlexShrink: 0,
+		Background: p.sidebar, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+	}
+	var thumb core.Node
+	if track.Album.ImageURL == "" {
+		thumb = core.View{Style: thumbFace, Children: []core.Node{ui.Icon(lucide.Music, 18, func() core.Color { return p.muted })}}
+	} else {
+		thumb = core.Image{SourceFunc: m.coverSource(cx, track.Album.ImageURL, 112, track.Source), Style: thumbFace, ResizeMode: core.Cover}
+	}
+
+	title := core.Text{
+		Content:  track.Name,
+		MaxLines: 1,
+		Style:    core.Style{FontSize: 15, FontWeight: core.FontWeightMedium, Color: p.text},
+		StyleFunc: func() core.Style {
+			if isPlaying() {
+				return core.Style{FontWeight: core.FontWeightSemibold}
+			}
+			return core.Style{}
+		},
+	}
+	textChildren := []core.Node{title}
+	if artists := track.ArtistNames(); artists != "" {
+		artist := label(artists, 12, core.FontWeightNormal, p.muted)
+		artist.MaxLines = 1
+		textChildren = append(textChildren, artist)
+	}
+	info := core.View{
+		Style:    core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 4},
+		Children: textChildren,
+	}
+
+	card := base.Button{
+		Label:   track.Name,
+		TestID:  "home-track-" + fmt.Sprint(index),
+		OnPress: func(core.PressEvent) { m.playback(func() { m.player.PlayTrack(tracks, index) })() },
+		Style: core.Style{
+			Direction: core.Row, AlignItems: core.AlignCenter, Gap: 12,
+			Padding: core.All(6), CornerRadius: 10,
+			Transition: core.Transition{Duration: 150 * time.Millisecond, Easing: core.EaseOut},
+			Hover:      &core.Style{Background: p.hover},
+		},
+		StyleFunc: func() core.Style {
+			if isPlaying() {
+				return core.Style{Background: p.chip}
+			}
+			return core.Style{}
+		},
+		Children: []core.Node{thumb, info},
+	}
+	return core.View{
+		OnContextMenu: func(event core.ContextMenuEvent) { m.trackOptions(cx, track, index, list, event.PagePosition) },
+		Children:      []core.Node{card},
+	}
 }
 
 func (m *model) tile(cx *core.Scope, src music.Source, name, sub, image string, r route, playable bool) core.Node {
