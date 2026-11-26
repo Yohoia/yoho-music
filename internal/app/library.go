@@ -76,30 +76,30 @@ func (m *model) pageView(cx *core.Scope, marketSearchRef *core.Ref) core.Node {
 	}
 	load(false)
 	return core.Dynamic(func(cx *core.Scope) core.Node {
-		r := result.Get()
-		if !r.done {
-			return m.withDetailHeader(cx, m.empty(cx, lucide.Radio, i18n.T("Loading…"), "", nil), statusWrap)
+		res := result.Get()
+		if !res.done {
+			return m.loadingSkeleton(cx, r)
 		}
-		if r.err != nil && !r.data.hasMore() {
-			if errors.Is(r.err, music.ErrSignIn) && src.Can("signIn") {
+		if res.err != nil && !res.data.hasMore() {
+			if errors.Is(res.err, music.ErrSignIn) && src.Can("signIn") {
 				action := button(i18n.T("Sign In"), "catalog-sign-in", lucide.LogIn, func() { m.changeAccount(src, true) })
 				action.Disabled = func() bool { return m.accountOf(src).busy }
 				return m.withDetailHeader(cx, m.emptyWithAction(cx, lucide.LogIn, i18n.T("Sign in to continue"), "", action), statusWrap)
 			}
-			return m.withDetailHeader(cx, m.empty(cx, lucide.CircleAlert, r.err.Error(), "", nil), statusWrap)
+			return m.withDetailHeader(cx, m.empty(cx, lucide.CircleAlert, res.err.Error(), "", nil), statusWrap)
 		}
 		var footer core.Node
-		if r.data.hasMore() {
+		if res.data.hasMore() {
 			more := button(i18n.T("Load More"), "catalog-more", lucide.ChevronsDown, func() { load(true) })
 			more.Disabled = func() bool { return result.Get().loading }
 			var controls []core.Node
-			if r.err != nil {
-				controls = append(controls, label(r.err.Error(), 13, core.FontWeightNormal, colors(cx).muted))
+			if res.err != nil {
+				controls = append(controls, label(res.err.Error(), 13, core.FontWeightNormal, colors(cx).muted))
 			}
 			controls = append(controls, more)
 			footer = core.View{Style: core.Style{Padding: core.Symmetric(12, 28), Gap: 6}, Children: controls}
 		}
-		return m.displayCatalog(cx, src, r.data, footer)
+		return m.displayCatalog(cx, src, res.data, footer)
 	})
 }
 

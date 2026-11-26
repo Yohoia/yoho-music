@@ -172,7 +172,9 @@ export function stream() { return null; }
 	app.WaitUntil(time.Second, func() bool { return app.Enabled("id:market-import") })
 	app.Press("id:market-import")
 	sourceID := plugin.NSGoSourcePrefix + id
-	marketSignIn := "id:market-sign-in-" + sourceID
+	marketSignIn := "id:market-detail-sign-in-" + sourceID
+	app.WaitFor("id:market-card-"+sourceID, 5*time.Second)
+	app.Press("id:market-card-" + sourceID)
 	start := func() {
 		app.WaitUntil(5*time.Second, func() bool { return app.Exists(marketSignIn) && app.Enabled(marketSignIn) })
 		app.Press(marketSignIn)
@@ -194,22 +196,26 @@ export function stream() { return null; }
 	app.WaitFor("id:sign-in-qr", time.Second)
 	app.Advance(time.Second)
 	app.WaitForGone("id:sign-in-dialog", time.Second)
-	app.WaitFor("text:Test Listener", time.Second)
+	app.WaitFor("id:market-detail >> text:Test Listener", time.Second)
 	if len(app.Secrets.Items()) != 1 {
 		t.Fatal("sign-in did not store the credential")
 	}
+	app.Press("id:market-detail-close")
 	app.WaitUntil(5*time.Second, func() bool { return app.Enabled("id:market-install-demo") })
 	app.Press("id:market-install-demo")
-	demoSignIn := "id:market-sign-in-" + plugin.DemoSourceID
+	app.WaitFor("id:market-remove-"+plugin.DemoSourceID, 5*time.Second)
+	app.WaitFor("id:market-card-"+plugin.DemoSourceID, 5*time.Second)
+	app.Press("id:market-card-" + plugin.DemoSourceID)
+	demoSignIn := "id:market-detail-sign-in-" + plugin.DemoSourceID
 	app.WaitUntil(5*time.Second, func() bool { return app.Exists(demoSignIn) && app.Enabled(demoSignIn) })
 	app.Press(demoSignIn)
-	demoSignOut := "id:market-sign-out-" + plugin.DemoSourceID
+	demoSignOut := "id:market-detail-sign-out-" + plugin.DemoSourceID
 	app.WaitFor(demoSignOut, 5*time.Second)
-	app.Press("id:market-open-" + plugin.DemoSourceID)
+	app.Press("id:market-detail-open-" + plugin.DemoSourceID)
 	app.WaitFor("id:track-0", 5*time.Second)
 	app.Press("id:source-menu-trigger")
 	app.Press("id:nav-plugin-market")
-	app.WaitUntil(5*time.Second, func() bool { return app.Enabled("id:market-sign-out-" + sourceID) })
+	app.WaitFor("id:market-remove-"+sourceID, 5*time.Second)
 	fixtureCard := "id:market-card-" + sourceID
 	demoCard := "id:market-card-" + plugin.DemoSourceID
 	fixtureFrame, demoFrame := app.Find(fixtureCard).Bounds(), app.Find(demoCard).Bounds()
@@ -220,13 +226,18 @@ export function stream() { return null; }
 	app.Resize(880, 580)
 	app.Settle()
 	fixtureFrame, demoFrame = app.Find(fixtureCard).Bounds(), app.Find(demoCard).Bounds()
-	if fixtureFrame.Origin.X != demoFrame.Origin.X || fixtureFrame.Origin.Y >= demoFrame.Origin.Y {
-		t.Fatalf("installed plugins should stack in a narrow window: %v, %v", fixtureFrame, demoFrame)
+	if fixtureFrame.Origin.Y != demoFrame.Origin.Y || fixtureFrame.Origin.X >= demoFrame.Origin.X {
+		t.Fatalf("installed plugin cards should retain their columns: %v, %v", fixtureFrame, demoFrame)
 	}
-	app.Press("id:market-sign-out-" + sourceID)
+	app.Press(fixtureCard)
+	app.WaitUntil(time.Second, func() bool { return app.Enabled("id:market-detail-sign-out-" + sourceID) })
+	app.Press("id:market-detail-sign-out-" + sourceID)
 	app.WaitUntil(time.Second, func() bool { return app.Enabled(marketSignIn) })
+	app.Press("id:market-detail-close")
 	app.Resize(1180, 780)
 	app.Settle()
+	app.Press(demoCard)
+	app.WaitUntil(time.Second, func() bool { return app.Enabled(demoSignOut) })
 	app.Find(demoSignOut)
 	if len(app.Secrets.Items()) != 0 {
 		t.Fatal("sign-out did not clear the credential")

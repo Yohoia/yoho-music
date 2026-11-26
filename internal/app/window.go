@@ -486,7 +486,7 @@ func (m *model) sourceMenuOverlay(cx *core.Scope, menuBtnRef *core.Ref) core.Nod
 					}
 					return core.Style{Hover: &core.Style{Background: p.hover}}
 				},
-				Children: []core.Node{ui.Icon(icon, 16, func() core.Color { return p.text }), name},
+				Children: []core.Node{sourceIcon(sourceID, icon, 16, p.text), name},
 			}
 		}
 

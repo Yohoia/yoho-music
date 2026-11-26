@@ -60,7 +60,6 @@ func (m *model) pluginMarket(cx *core.Scope, searchRef *core.Ref) core.Node {
 	query := core.NewSignal(cx, "")
 	installedOnly := core.NewSignal(cx, false)
 	selectedID := core.NewSignal(cx, "")
-	wide := core.NewSignal(cx, false)
 	p := colors(cx)
 	catalog := core.NewSignalFunc(cx, marketCatalog{}, nil)
 	ctx := cx.Context()
@@ -118,18 +117,6 @@ func (m *model) pluginMarket(cx *core.Scope, searchRef *core.Ref) core.Node {
 			label(i18n.T("Import Package"), 12, core.FontWeightSemibold, p.onButton),
 		},
 	}
-	manageBtn := base.Button{
-		Label:   i18n.T("Manage"),
-		TestID:  "market-manage",
-		OnPress: func(core.PressEvent) { m.navigate(route{page: "settings"}) },
-		Style: core.Style{
-			Direction: core.Row, Height: core.Pt(32), Padding: core.Symmetric(0, 14), CornerRadius: 16,
-			Background: p.sidebar, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
-			Hover: &core.Style{Background: p.hover},
-		},
-		Children: []core.Node{label(i18n.T("Manage"), 12, core.FontWeightMedium, p.text)},
-	}
-
 	cx.Effect(func() {
 		sources := m.plugins.Get()
 		cx.Post(func() {
@@ -154,18 +141,7 @@ func (m *model) pluginMarket(cx *core.Scope, searchRef *core.Ref) core.Node {
 	}
 	closeDetail := func() { selectedID.Set("") }
 
-	headerLeft := core.View{
-		Style: core.Style{FlexGrow: 1, FlexShrink: 1, Gap: 4},
-		Children: []core.Node{
-			label(i18n.T("Plugin Market"), 22, core.FontWeightSemibold, p.text),
-			label(i18n.T("Browse all plugins or import a signed Yoho package."), 12, core.FontWeightNormal, p.muted),
-		},
-	}
-	headerRow := row(headerLeft, manageBtn, importBtn)
-	headerRow.Style.AlignItems = core.AlignEnd
-	headerRow.Style.Gap = 8
-
-	filters := row(core.Dynamic(func(cx *core.Scope) core.Node {
+	filters := core.Dynamic(func(cx *core.Scope) core.Node {
 		installed := len(m.plugins.Get())
 		total := len(offered())
 		tabs := row(
@@ -174,7 +150,17 @@ func (m *model) pluginMarket(cx *core.Scope, searchRef *core.Ref) core.Node {
 		)
 		tabs.Style.Gap = 4
 		return tabs
-	}), spacer(), marketSearch(p, searchRef, query))
+	})
+
+	pageTitle := label(i18n.T("Plugin Market"), 22, core.FontWeightSemibold, p.text)
+
+	rightHeader := row(marketSearch(p, searchRef, query), importBtn)
+	rightHeader.Style.AlignItems = core.AlignCenter
+	rightHeader.Style.Gap = 8
+
+	toolbarRow := row(filters, spacer(), rightHeader)
+	toolbarRow.Style.AlignItems = core.AlignCenter
+	toolbarRow.Style.Gap = 12
 
 	list := core.Dynamic(func(cx *core.Scope) core.Node {
 		term := strings.ToLower(strings.TrimSpace(query.Get()))
@@ -196,7 +182,7 @@ func (m *model) pluginMarket(cx *core.Scope, searchRef *core.Ref) core.Node {
 			}
 		}
 		if len(installed) > 0 {
-			sections = append(sections, marketSection(p, i18n.T("Installed Plugins"), installed...))
+			sections = append(sections, marketSection(p, "", installed...))
 		}
 		if len(available) > 0 {
 			if len(sections) > 0 {
@@ -205,7 +191,10 @@ func (m *model) pluginMarket(cx *core.Scope, searchRef *core.Ref) core.Node {
 			sections = append(sections, marketSection(p, i18n.T("Available to Install"), available...))
 		}
 		if state := catalog.Get(); !onlyInstalled && state.loading {
-			sections = append(sections, label(i18n.T("Loading plugin market…"), 13, core.FontWeightNormal, p.muted))
+			if len(sections) > 0 {
+				sections = append(sections, dashedDivider(p.line))
+			}
+			sections = append(sections, marketLoadingSkeleton(cx, p))
 		} else if !onlyInstalled && state.failed {
 			retry := button(i18n.T("Retry"), "market-retry", lucide.RefreshCw, refresh)
 			retry.Variant = ui.ButtonOutline
@@ -220,12 +209,11 @@ func (m *model) pluginMarket(cx *core.Scope, searchRef *core.Ref) core.Node {
 		return core.View{Style: core.Style{Gap: 20}, Children: sections}
 	})
 
-	_ = wide
 	pageBody := paperWrap(core.View{
-		Style: core.Style{Padding: core.Edges{Top: 62, Bottom: 108}, Gap: 18},
+		Style: core.Style{Padding: core.Edges{Top: 62, Bottom: 108}, Gap: 16},
 		Children: []core.Node{
-			headerRow,
-			filters,
+			pageTitle,
+			toolbarRow,
 			dashedDivider(p.line),
 			list,
 		},
@@ -288,20 +276,22 @@ func marketSearch(p palette, ref *core.Ref, query *core.Signal[string]) core.Nod
 	return box
 }
 
-func marketSection(p palette, title string, rows ...core.Node) core.Node {
-	count := label(strconv.Itoa(len(rows)), 12, core.FontWeightMedium, p.muted)
-	count.Style.FontVariant = core.FontTabularNums
-	var children []core.Node
-	for i, r := range rows {
-		if i > 0 {
-			children = append(children, core.View{Style: core.Style{Height: core.Pt(1), Background: p.line}})
-		}
-		children = append(children, r)
+func marketSection(p palette, title string, cards ...core.Node) core.Node {
+	grid := core.View{
+		Style: core.Style{
+			Display:             core.DisplayGrid,
+			GridTemplateColumns: core.GridTracks("repeat(2, minmax(0, 1fr))"),
+			Gap:                 16,
+		},
+		Children: cards,
 	}
-	return core.View{Style: core.Style{Gap: 10}, Children: []core.Node{
-		row(label(title, 15, core.FontWeightSemibold, p.text), count),
-		core.View{Children: children},
-	}}
+	content := []core.Node{grid}
+	if title != "" {
+		count := label(strconv.Itoa(len(cards)), 12, core.FontWeightMedium, p.muted)
+		count.Style.FontVariant = core.FontTabularNums
+		content = append([]core.Node{row(label(title, 15, core.FontWeightSemibold, p.text), count)}, content...)
+	}
+	return core.View{Style: core.Style{Gap: 12}, Children: content}
 }
 
 func marketEmpty(p palette, searching bool, clearSearch, showAll func()) core.Node {
@@ -325,114 +315,167 @@ func marketArtwork(p palette, icon glyph, size core.Points) core.Node {
 		Children: []core.Node{ui.Icon(icon, size*.47, func() core.Color { return p.accent })}}
 }
 
-func marketGradientFor(id string) core.Gradient {
-	switch id {
-	case plugin.NetEaseSourceID:
-		return core.LinearGradient(135, core.RGB(0xc2415c), core.RGB(0x7f1d32))
-	case plugin.DemoSourceID:
-		return core.LinearGradient(135, core.RGB(0x6366f1), core.RGB(0x312e81))
-	default:
-		return core.LinearGradient(135, core.RGB(0x475569), core.RGB(0x1e293b))
-	}
-}
-
 func (m *model) marketCard(cx *core.Scope, p palette, entry marketPlugin, open func(string)) core.Node {
-	icon, _ := entry.identity()
-	iconBadge := core.View{
-		Style: core.Style{
-			Width: core.Pt(44), Height: core.Pt(44), CornerRadius: 12, FlexShrink: 0,
-			Gradients:  []core.Gradient{marketGradientFor(entry.ID)},
-			AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
-		},
-		Children: []core.Node{ui.Icon(icon, 20, func() core.Color { return core.RGB(0xffffff) })},
+	_, origin := entry.identity()
+	cardBg := core.RGB(0xffffff)
+	trayBg := core.RGB(0xf2f2f5)
+	descColor := core.RGB(0x3f3f46)
+	kindColor := core.RGB(0x4f46e5)
+	borderHover := core.RGB(0xc7c7d1)
+	if cx.Dark() {
+		cardBg = core.RGB(0x1c1c20)
+		trayBg = core.RGB(0x26262c)
+		descColor = core.RGB(0xc4c4cc)
+		kindColor = core.RGB(0x818cf8)
+		borderHover = core.RGB(0x4a4a55)
 	}
+	green := marketSuccess(cx)
+
+	iconTray := core.View{
+		Style: core.Style{
+			Width: core.Pt(46), Height: core.Pt(46), CornerRadius: 12, FlexShrink: 0,
+			Background: trayBg, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+		},
+		Children: []core.Node{marketPluginArtwork(p, entry, 28)},
+	}
+
+	title := label(entry.Name, 16, core.FontWeightBold, p.text)
+	title.MaxLines = 1
+	verified := row(
+		ui.Icon(lucide.ShieldCheck, 13, func() core.Color { return green }),
+		label(origin, 12, core.FontWeightMedium, green),
+	)
+	verified.Style.Gap = 4
+
+	topRight := core.Dynamic(func(*core.Scope) core.Node {
+		if entry.source == nil || entry.update {
+			install := m.marketPrimaryAction(entry, "market-", ui.ButtonPrimary)
+			install.Style.Height = core.Pt(28)
+			install.Style.CornerRadius = 14
+			return install
+		}
+		state := m.accountOf(entry.source)
+		switch {
+		case state.busy:
+			return label(i18n.T("Checking account…"), 12, core.FontWeightNormal, p.muted)
+		case state.account != nil:
+			status := row(ui.Icon(lucide.Check, 14, func() core.Color { return green }), label(i18n.T("Signed In"), 12.5, core.FontWeightMedium, green))
+			status.Style.Gap = 4
+			return status
+		case entry.source.Can("signIn"):
+			return label(i18n.T("Signed Out"), 12, core.FontWeightNormal, p.muted)
+		default:
+			status := row(ui.Icon(lucide.Check, 13, func() core.Color { return p.muted }), label(i18n.T("Installed"), 12, core.FontWeightMedium, p.muted))
+			status.Style.Gap = 4
+			return status
+		}
+	})
+
+	cardHovered := core.NewSignal(cx, false)
+	softRed := core.RGB(0xe56b6f)
+	softRedHover := core.RGBA(0xef4444, .10)
+	if cx.Dark() {
+		softRed = core.RGB(0xf28b8d)
+		softRedHover = core.RGBA(0xf87171, .14)
+	}
+
+	headerRow := row(
+		iconTray,
+		core.View{
+			Style: core.Style{
+				Height: core.Pt(46), FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0),
+				Padding: core.Symmetric(2, 0),
+			},
+			Children: []core.Node{title, spacer(), verified},
+		},
+		topRight,
+	)
+	headerRow.Style.Gap = 12
 
 	description := entry.description()
 	if description == "" {
 		description = entry.packageID()
 	}
+	desc := label(description, 13, core.FontWeightNormal, descColor)
+	desc.MaxLines = 2
+	desc.Style.LineHeight = 19
 
-	infoArea := core.Dynamic(func(*core.Scope) core.Node {
-		state := pluginAccount{}
+	upperClick := base.Button{
+		TestID:   "market-card-" + entry.ID,
+		Label:    fmt.Sprintf(i18n.T("View details for %s"), entry.Name),
+		OnPress:  func(core.PressEvent) { open(entry.ID) },
+		Style:    core.Style{Gap: 12, FlexGrow: 1},
+		Children: []core.Node{headerRow, desc},
+	}
+
+	footer := core.Dynamic(func(*core.Scope) core.Node {
+		var metaNodes []core.Node
+		kind := row(ui.Icon(lucide.Plug, 12.5, func() core.Color { return kindColor }), label(i18n.T("Sources"), 12, core.FontWeightMedium, kindColor))
+		kind.Style.Gap = 4
+		metaNodes = append(metaNodes, kind)
+
 		if entry.source != nil {
-			state = m.accountOf(entry.source)
+			state := m.accountOf(entry.source)
+			if state.account != nil {
+				acct := row(ui.Icon(lucide.User, 12.5, func() core.Color { return p.muted }), label(marketAccountName(state.account), 12, core.FontWeightNormal, p.muted))
+				acct.Style.Gap = 4
+				metaNodes = append(metaNodes, acct)
+			}
 		}
-		name := label(entry.Name, 14, core.FontWeightSemibold, p.text)
-		name.MaxLines = 1
-		topItems := []core.Node{name}
+
 		if entry.Version != "" {
-			ver := label("v"+entry.Version, 11, core.FontWeightNormal, p.muted)
+			ver := label("v"+entry.Version, 12, core.FontWeightNormal, p.muted)
 			ver.Style.FontFamily = core.FontMonospace
 			ver.Style.FontVariant = core.FontTabularNums
-			verChip := core.View{
-				Style:    core.Style{Background: p.chip, Padding: core.Symmetric(2, 6), CornerRadius: 4, FlexShrink: 0},
-				Children: []core.Node{ver},
-			}
-			topItems = append(topItems, verChip)
+			metaNodes = append(metaNodes, ver)
 		}
+
+		metadata := core.View{
+			Style:    core.Style{Direction: core.Row, Wrap: core.Wrap, AlignItems: core.AlignCenter, Gap: 10, FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0)},
+			Children: metaNodes,
+		}
+
+		var remove core.Node
 		if entry.source != nil {
-			var statusText string
-			statusColor := p.muted
-			switch {
-			case state.busy:
-				statusText = i18n.T("Checking account…")
-			case state.account != nil:
-				statusText = marketAccountName(state.account)
-				statusColor = marketSuccess(cx)
-			case entry.source.Can("signIn"):
-				statusText = i18n.T("Signed Out")
+			removeBtn := base.Button{
+				Label:    i18n.T("Remove Plugin"),
+				TestID:   "market-remove-" + entry.ID,
+				Disabled: func() bool { return m.nsgoPluginBusy.Get() || !cardHovered.Get() },
+				OnPress: func(core.PressEvent) {
+					confirm(cx, i18n.T("Remove Plugin?"), entry.Name, func() { m.removeNSGoPlugin(entry.source) })
+				},
+				Style: core.Style{
+					Width: core.Pt(30), Height: core.Pt(30), CornerRadius: 15, FlexShrink: 0,
+					AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+					Hover: &core.Style{Background: softRedHover},
+				},
+				StyleFunc: func() core.Style {
+					if cardHovered.Get() {
+						return core.Style{Opacity: core.Alpha(1)}
+					}
+					return core.Style{Opacity: core.Alpha(0), PointerEvents: core.PointerEventsNone}
+				},
+				Children: []core.Node{ui.Icon(lucide.Trash, 15, func() core.Color { return softRed })},
 			}
-			if statusText != "" {
-				st := label("· "+statusText, 11, core.FontWeightNormal, statusColor)
-				st.MaxLines = 1
-				topItems = append(topItems, st)
-			}
+			remove = ui.Tooltip{Text: i18n.T("Remove Plugin"), Trigger: removeBtn}
 		}
-		topLine := row(topItems...)
-		topLine.Style.Gap = 6
 
-		desc := label(description, 12, core.FontWeightNormal, p.muted)
-		desc.MaxLines = 1
-
-		return base.Button{
-			TestID:  "market-card-" + entry.ID,
-			Label:   fmt.Sprintf(i18n.T("View details for %s"), entry.Name),
-			OnPress: func(core.PressEvent) { open(entry.ID) },
-			Style: core.Style{
-				Direction: core.Row, AlignItems: core.AlignCenter, Gap: 14,
-				FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0),
-				Padding: core.Symmetric(12, 8), CornerRadius: 12,
-				Hover: &core.Style{Background: p.hover},
-			},
-			Children: []core.Node{
-				iconBadge,
-				core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinWidth: core.Pt(0), Gap: 4}, Children: []core.Node{topLine, desc}},
-			},
-		}
+		bar := row(metadata, remove)
+		bar.Style.Gap = 8
+		return bar
 	})
 
-	actions := core.Dynamic(func(*core.Scope) core.Node {
-		state := pluginAccount{}
-		if entry.source != nil {
-			state = m.accountOf(entry.source)
-		}
-		variant := ui.ButtonOutline
-		if entry.source == nil || entry.update {
-			variant = ui.ButtonPrimary
-		}
-		primary := m.marketPrimaryAction(entry, "market-", variant)
-		primary.Style.Height = core.Pt(30)
-		primary.Style.CornerRadius = 15
-		box := row(m.marketAccountAction(entry, state, "market-"), primary)
-		box.Style.Gap = 6
-		box.Style.FlexShrink = 0
-		return box
-	})
-
-	entryRow := row(infoArea, actions)
-	entryRow.Style.Gap = 10
-	entryRow.Style.Padding = core.Symmetric(2, 0)
-	return entryRow
+	return core.View{
+		TestID:       "market-tile-" + entry.ID,
+		OnMouseEnter: func(core.MouseEvent) { cardHovered.Set(true) },
+		OnMouseLeave: func(core.MouseEvent) { cardHovered.Set(false) },
+		Style: core.Style{
+			Background: cardBg, BorderWidth: 1, BorderColor: p.line, CornerRadius: 16,
+			Padding: core.All(18), Gap: 14,
+			Hover: &core.Style{BorderColor: borderHover},
+		},
+		Children: []core.Node{upperClick, footer},
+	}
 }
 
 func marketSuccess(cx *core.Scope) core.Color {
