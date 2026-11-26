@@ -223,12 +223,13 @@ type Section struct {
 	Subtitle string `json:"subtitle,omitempty"`
 }
 
-// Link opens another Browse page.
+// Link opens another Browse page, or starts StationID when provided.
 type Link struct {
-	Title    string `json:"title"`
-	Subtitle string `json:"subtitle,omitempty"`
-	ImageURL string `json:"imageUrl,omitempty"`
-	Page     string `json:"page"`
+	Title     string `json:"title"`
+	Subtitle  string `json:"subtitle,omitempty"`
+	ImageURL  string `json:"imageUrl,omitempty"`
+	Page      string `json:"page"`
+	StationID string `json:"stationId,omitempty"`
 }
 
 // NavItem is an entry of the sidebar: a Browse page of the source's own, by

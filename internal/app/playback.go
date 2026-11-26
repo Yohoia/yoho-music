@@ -1016,19 +1016,7 @@ func (m *model) playerBar(cx *core.Scope) core.Node {
 
 	spinAngle := m.playbarSpinAngle(cx)
 	hasTrack := func() bool {
-		track := m.playing.Get().track
-		if track == nil {
-			return false
-		}
-		if src := m.activeSource(); src != nil && src.Info().ID != local.ID && src.Can("signIn") && m.accountOf(src).account == nil {
-			return false
-		}
-		if track.Source != "" && track.Source != local.ID {
-			if src := m.sourceByID(track.Source); src != nil && src.Can("signIn") && m.accountOf(src).account == nil {
-				return false
-			}
-		}
-		return true
+		return m.playing.Get().track != nil
 	}
 
 	// Expanded body (waveform + full controls + collapse button) smoothly fades out during collapse.

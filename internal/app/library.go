@@ -557,6 +557,9 @@ func (m *model) displayCatalog(cx *core.Scope, src music.Source, d catalogData, 
 		tracks = append(tracks, section.Tracks...)
 	}
 	tracks = withSource(tracks, sourceID)
+	if r := m.page.Get(); r.page == "browse" && r.id == "playlists-hub" && len(d.sections) == 2 {
+		return m.playlistsHubView(cx, src, d, footer)
+	}
 	trackOnly := len(d.sections) == 1 && len(tracks) > 0 &&
 		len(d.sections[0].Albums)+len(d.sections[0].Artists)+len(d.sections[0].Playlists)+len(d.sections[0].Shows)+len(d.sections[0].Stations)+len(d.sections[0].Links) == 0
 	if d.album != nil || d.list != nil || d.show != nil || (!d.home && !m.hasSubNav() && trackOnly) {
@@ -649,6 +652,120 @@ func (m *model) catalogSections(cx *core.Scope, src music.Source, d catalogData,
 		body = append(body, paperWrap(footer))
 	}
 	return core.Scroll{Style: fill, Children: []core.Node{core.View{Style: core.Style{Gap: 16, Padding: core.Edges{Top: topPad, Bottom: 108}}, Children: body}}}
+}
+
+func (m *model) playlistsHubView(cx *core.Scope, src music.Source, d catalogData, footer core.Node) core.Node {
+	p := colors(cx)
+	// Ensure Recommended Playlists is always tab 0 (default) and Personal Playlists is tab 1.
+	tabs := []struct {
+		label   string
+		id      string
+		section music.Section
+	}{
+		{label: d.sections[0].Title, id: "playlists-tab-recommended", section: d.sections[0]},
+		{label: d.sections[1].Title, id: "playlists-tab-personal", section: d.sections[1]},
+	}
+	if d.sections[1].MorePage == "discovery" || d.sections[1].Title == "推荐歌单" {
+		tabs[0].section, tabs[1].section = d.sections[1], d.sections[0]
+		tabs[0].label, tabs[1].label = d.sections[1].Title, "私人歌单"
+	} else {
+		tabs[0].label = d.sections[0].Title
+		if tabs[1].label == "" || tabs[1].label == "我的歌单" {
+			tabs[1].label = "私人歌单"
+		}
+	}
+
+	activeTab := core.NewSignal(cx, 0)
+	tabBtn := func(idx int, text, id string, count int) core.Node {
+		selected := func() bool { return activeTab.Get() == idx }
+		display := text
+		if count > 0 {
+			display = fmt.Sprintf("%s %d", text, count)
+		}
+		t := core.Text{
+			Content: display,
+			Style:   core.Style{FontSize: 13, FontWeight: core.FontWeightMedium, FontVariant: core.FontTabularNums, Color: p.muted},
+			StyleFunc: func() core.Style {
+				if selected() {
+					return core.Style{Color: p.onButton}
+				}
+				return core.Style{}
+			},
+		}
+		return base.Button{
+			Label:    display,
+			TestID:   id,
+			Selected: selected,
+			OnPress:  func(core.PressEvent) { activeTab.Set(idx) },
+			Style: core.Style{
+				Direction: core.Row, AlignItems: core.AlignCenter, Height: core.Pt(32),
+				Padding: core.Symmetric(0, 14), CornerRadius: 16,
+			},
+			StyleFunc: func() core.Style {
+				return p.selectableButtonStyle(selected())
+			},
+			Children: []core.Node{t},
+		}
+	}
+
+	tabPills := row(
+		tabBtn(0, tabs[0].label, tabs[0].id, len(tabs[0].section.Playlists)),
+		tabBtn(1, tabs[1].label, tabs[1].id, len(tabs[1].section.Playlists)),
+	)
+	tabPills.Style.Gap = 6
+
+	barChildren := []core.Node{tabPills, spacer()}
+	if src.Can("createPlaylist") {
+		barChildren = append(barChildren, core.Show{
+			When: func() bool { return activeTab.Get() == 1 },
+			Then: func(*core.Scope) core.Node {
+				return base.Button{
+					Label:   i18n.T("New Playlist"),
+					TestID:  "source-new-playlist",
+					OnPress: func(core.PressEvent) { m.navigate(route{page: "source-playlist-edit"}) },
+					Style: core.Style{
+						Direction: core.Row, Height: core.Pt(32), Padding: core.Symmetric(0, 14), CornerRadius: 16,
+						Background: p.sidebar, AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter, Gap: 6,
+						Hover: &core.Style{Background: p.hover},
+					},
+					Children: []core.Node{
+						ui.Icon(lucide.Plus, 13, func() core.Color { return p.text }),
+						label(i18n.T("New Playlist"), 12, core.FontWeightMedium, p.text),
+					},
+				}
+			},
+		})
+	}
+	topBar := row(barChildren...)
+	topBar.Style.Padding = core.Edges{Top: 6, Bottom: 4}
+
+	content := core.Dynamic(func(cx *core.Scope) core.Node {
+		sec := tabs[activeTab.Get()].section
+		sec.Title = ""
+		sec.MorePage = ""
+		items := m.section(cx, src, sec, d.list, false)
+		if len(items) == 0 {
+			return m.empty(cx, lucide.ListMusic, i18n.T("Nothing here yet"), "", nil)
+		}
+		return core.View{Style: core.Style{Gap: 16}, Children: items}
+	})
+
+	body := []core.Node{
+		paperWrap(topBar),
+		paperWrap(dashedDivider(p.line)),
+		content,
+	}
+	if footer != nil {
+		body = append(body, paperWrap(footer))
+	}
+	topPad := core.Points(46)
+	if m.hasSubNav() {
+		topPad = 74
+	}
+	return core.Scroll{
+		Style:    fill,
+		Children: []core.Node{core.View{Style: core.Style{Gap: 14, Padding: core.Edges{Top: topPad, Bottom: 108}}, Children: body}},
+	}
 }
 
 func dashedDivider(lineColor core.Color) core.Node {
@@ -1167,13 +1284,18 @@ func (m *model) section(cx *core.Scope, src music.Source, section music.Section,
 	}
 	heroFeatureRow := home && section.Title == "" && len(section.Albums) == 0 && len(section.Artists) == 0 && len(section.Playlists) == 0 && len(section.Shows) == 0
 	for _, link := range section.Links {
+		l := link
+		open := func() {
+			if l.StationID != "" {
+				m.playStation(src, music.Station{ID: l.StationID, Name: l.Title, Description: l.Subtitle, ImageURL: l.ImageURL})
+				return
+			}
+			m.navigate(route{page: "browse", id: l.Page})
+		}
 		if heroFeatureRow {
-			l := link
-			cards = append(cards, m.featureTile(cx, l.Title, l.Subtitle, l.ImageURL, l.Page, func() {
-				m.navigate(route{page: "browse", id: l.Page})
-			}))
+			cards = append(cards, m.featureTile(cx, l.Title, l.Subtitle, l.ImageURL, l.Page, open))
 		} else {
-			cards = append(cards, m.tile(cx, src, link.Title, link.Subtitle, link.ImageURL, route{page: "browse", id: link.Page}, false))
+			cards = append(cards, m.tileWithAction(cx, src, link.Title, link.Subtitle, link.ImageURL, route{page: "browse", id: link.Page}, false, open))
 		}
 	}
 	for _, station := range section.Stations {
@@ -1247,6 +1369,8 @@ func featureStyleFor(key string) featureCardStyle {
 		return featureCardStyle{topA: 0x4b5563, topB: 0x1f2937, band: 0x3f4145, icon: lucide.Calendar}
 	case key == "radar":
 		return featureCardStyle{topA: 0x99e2d0, topB: 0x489b84, band: 0x67b398, icon: lucide.Radio}
+	case key == "heartbeat":
+		return featureCardStyle{topA: 0x4b749f, topB: 0x1d3f66, band: 0x1e4369}
 	case key == "recommendations":
 		return featureCardStyle{topA: 0x4b749f, topB: 0x1d3f66, band: 0x1e4369, icon: lucide.Heart}
 	case strings.HasPrefix(key, "station:"):
@@ -1302,16 +1426,17 @@ func (m *model) featureTile(cx *core.Scope, title, subtitle, image, key string, 
 		MaxLines: 1,
 		Style:    core.Style{FontSize: 16, FontWeight: core.FontWeightBold, Color: core.RGB(0xffffff), FlexShrink: 1},
 	}
+	titleContent := []core.Node{titleText}
+	if theme.icon != nil {
+		titleContent = []core.Node{ui.Icon(theme.icon, 15, func() core.Color { return core.RGB(0xffffff) }), titleText}
+	}
 	titleOverlay := core.View{
 		PointerEvents: core.PointerEventsNone,
 		Style: core.Style{
 			Position: core.Absolute, Top: core.Pt(11), Left: core.Pt(12), Right: core.Pt(12),
 			Direction: core.Row, AlignItems: core.AlignCenter, Gap: 6,
 		},
-		Children: []core.Node{
-			ui.Icon(theme.icon, 15, func() core.Color { return core.RGB(0xffffff) }),
-			titleText,
-		},
+		Children: titleContent,
 	}
 
 	upper := core.View{
@@ -1474,6 +1599,10 @@ func (m *model) homeTrackCard(cx *core.Scope, tracks []music.Track, index int, l
 }
 
 func (m *model) tile(cx *core.Scope, src music.Source, name, sub, image string, r route, playable bool) core.Node {
+	return m.tileWithAction(cx, src, name, sub, image, r, playable, func() { m.navigate(r) })
+}
+
+func (m *model) tileWithAction(cx *core.Scope, src music.Source, name, sub, image string, r route, playable bool, open func()) core.Node {
 	p := colors(cx)
 	const coverRadius = core.Points(15)
 	smooth := core.Curve{X1: 0.22, Y1: 1, X2: 0.36, Y2: 1}
@@ -1481,7 +1610,7 @@ func (m *model) tile(cx *core.Scope, src music.Source, name, sub, image string, 
 
 	coverBtn := base.Button{
 		Label:   name,
-		OnPress: func(core.PressEvent) { m.navigate(r) },
+		OnPress: func(core.PressEvent) { open() },
 		Style: core.Style{
 			Width: core.Pct(100), Height: core.Pct(100), CornerRadius: coverRadius,
 			Transition: core.Transition{Duration: 240 * time.Millisecond, Easing: smooth},
@@ -1558,7 +1687,7 @@ func (m *model) tile(cx *core.Scope, src music.Source, name, sub, image string, 
 	title.MaxLines = 1
 	titleBtn := base.Button{
 		Label:   name,
-		OnPress: func(core.PressEvent) { m.navigate(r) },
+		OnPress: func(core.PressEvent) { open() },
 		Style: core.Style{
 			AlignItems: core.AlignStart,
 			Transition: core.Transition{Duration: 150 * time.Millisecond, Easing: core.EaseOut},
@@ -1585,7 +1714,7 @@ func (m *model) tile(cx *core.Scope, src music.Source, name, sub, image string, 
 				desktopItem{label: i18n.T("Shuffle"), action: func() { m.playCollection(src, r, true) }},
 			)
 		}
-		items = append(items, desktopItem{label: i18n.T("Open"), action: func() { m.navigate(r) }})
+		items = append(items, desktopItem{label: i18n.T("Open"), action: open})
 		trackMenu(cx, items, at)
 	}
 	moreBtn := base.Button{

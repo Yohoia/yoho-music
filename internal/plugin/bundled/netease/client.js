@@ -9,6 +9,7 @@ const desktopRoutes = new Set([
   "/api/song/enhance/player/url/v1", "/api/song/lyric/v1", "/api/song/like/get",
   "/api/v1/radio/get", "/api/v3/song/detail", "/api/play-record/song/list",
   "/api/album/sublist",
+  "/api/playmode/intelligence/list",
 ]);
 let device;
 let session;
@@ -169,6 +170,28 @@ export async function requireAccount() {
   const current = await account();
   if (!current) throw signInRequired();
   return current;
+}
+
+// Bind a sequence of requests to the account and cookies that started it.
+export async function requireSession() {
+  const active = generation;
+  const cookies = await storedCookies();
+  const user = await requireAccount();
+  if (active !== generation || cookies !== await storedCookies()) throw signInRequired();
+  const current = session;
+  const check = () => {
+    if (active !== generation || current !== session || user.id !== profile?.id) throw signInRequired();
+  };
+  check();
+  return {
+    user, key: current, generation: active, check,
+    request: async (path, fields = {}, post = false) => {
+      check();
+      const { body } = await request(path, fields, { cookies, desktop: post || desktopRoutes.has(path) });
+      check();
+      return body;
+    },
+  };
 }
 
 export async function signOut() {

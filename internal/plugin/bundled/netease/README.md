@@ -6,7 +6,11 @@
 
 发现页提供公开推荐歌单和排行榜。登录后还能读取最近一周与所有时间的听歌排行、每日推荐、私人雷达、个性化歌单和云盘。私人漫游提供默认推荐、熟悉的歌和新发现三种模式，播放队列消耗后继续取歌。私人漫游依赖网易云音乐 App 中的「个性化服务」设置。
 
+心动模式从当前账号的「我喜欢的音乐」选择可播放的种子歌曲，通过网易云心动接口持续补歌。点击发现页或「为你推荐」中的「心动模式」卡片即可开始收听。插件会过滤近期重复和不可播放的歌曲，并按登录会话隔离推荐进度。喜欢歌单为空、推荐为空或请求失败时会显示错误，只有心动接口成功返回可播放的新推荐才会开始或继续供歌。
+
 扫码流程和功能以 [sogud/mygo-music-netease](https://github.com/sogud/mygo-music-netease/tree/82696baa3f773d7661a568a430bde8d68f8d0f43)、[AkinoKaede/mygo-music-netease-cloud-music](https://github.com/AkinoKaede/mygo-music-netease-cloud-music) 和 [hubandad/mygo-music-netease](https://github.com/hubandad/mygo-music-netease) 为参考。宿主的 AES 编码函数复用了 MyGo Music v0.1.25 的实现，沿用 AGPL-3.0。
+
+心动请求与连续补歌逻辑参考 sogud 的 `82696baa3f773d7661a568a430bde8d68f8d0f43` 提交，以及 AkinoKaede 的 `b9bf374cce816e87ed3ca58e293ff4001842c1cb` 提交中 `src/radio.ts` 的实现。相关许可与版权说明保留在 `heart.js` 文件头。
 
 ## 重新打包
 

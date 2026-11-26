@@ -190,6 +190,9 @@ func (m *model) discoverPluginsThen(done func()) {
 			}
 			m.plugins.Set(sources)
 			m.nsgoStore.Set(store)
+			for _, source := range sources {
+				m.refreshAccount(source)
+			}
 			done()
 		})
 	}()

@@ -35,6 +35,7 @@ func TestNetEaseQRLoginAndMedia(t *testing.T) {
 	var polls atomic.Int32
 	var discoveryRequests atomic.Int32
 	var radioRequests atomic.Int32
+	var heartRequests atomic.Int32
 	provider := func(req *http.Request) (*http.Response, error) {
 		if req.URL.Host != "music.163.com" && req.URL.Host != "interfacepc.music.163.com" {
 			return nil, errors.New("session left the NetEase API")
@@ -78,16 +79,19 @@ func TestNetEaseQRLoginAndMedia(t *testing.T) {
 			}
 			body = `{"code":200,"result":{"songCount":80,"songs":[{"id":42,"name":"Fixture track","dt":12000,"ar":[{"id":5,"name":"Artist"}],"al":{"id":6,"name":"Album","picUrl":"http://p1.music.126.net/art.jpg"}}]}}`
 		case "/eapi/v3/song/detail":
-			if fields["c"] != `[{"id":"42"}]` && fields["c"] != `[{"id":"42"},{"id":"43"}]` {
+			if fields["c"] != `[{"id":"42"}]` && fields["c"] != `[{"id":"42"},{"id":"43"}]` && fields["c"] != `[{"id":"43"}]` {
 				return nil, errors.New("incorrect track details batch")
 			}
 			body = `{"code":200,"songs":[{"id":42,"name":"Fixture track","dt":12000,"ar":[{"id":5,"name":"Artist"}],"al":{"id":6,"name":"Album","publishTime":1704038400000}}],"privileges":[{"id":42,"st":0}]}`
+			if fields["c"] == `[{"id":"43"}]` {
+				body = `{"code":200,"songs":[{"id":43,"name":"Heart recommendation","al":{"picUrl":"http://p1.music.126.net/heart-recommendation.jpg"}}],"privileges":[{"id":43,"st":0}]}`
+			}
 		case "/api/personalized/playlist":
 			if params.Get("limit") != "24" {
 				return nil, errors.New("incorrect public recommendations limit")
 			}
 			discoveryRequests.Add(1)
-			body = `{"code":200,"result":[{"id":88,"name":"Public mix"}]}`
+			body = `{"code":200,"result":[{"id":88,"name":"Public mix","picUrl":"http://p1.music.126.net/public-mix.jpg"}]}`
 		case "/api/v1/play/record":
 			if params.Get("uid") != "123" {
 				return nil, errors.New("listening ranks must use the signed-in account")
@@ -106,9 +110,33 @@ func TestNetEaseQRLoginAndMedia(t *testing.T) {
 			}
 			body = `{"code":200,"data":{"dailySongs":[{"id":42,"al":{"picUrl":"http://p1.music.126.net/daily-first.jpg"}},{"id":43,"al":{"picUrl":"http://p1.music.126.net/daily-second.jpg"}}]}}`
 		case "/api/v1/discovery/recommend/resource":
-			body = `{"code":200,"recommend":[{"id":99,"name":"Private mix"}]}`
+			if req.Header.Get("Cookie") != cookie {
+				return nil, errors.New("personalized playlists must use the signed-in account")
+			}
+			body = `{"code":200,"recommend":[{"id":99,"name":"Private mix","picUrl":"http://p1.music.126.net/private-mix.jpg"}]}`
+		case "/api/user/playlist":
+			if req.Header.Get("Cookie") != cookie || params.Get("uid") != "123" || params.Get("offset") != "0" || params.Get("limit") != "30" {
+				return nil, errors.New("heart mode must look up the signed-in account's liked playlist")
+			}
+			body = `{"code":200,"playlist":[{"id":85,"specialType":5,"creator":{"userId":321}},{"id":86,"specialType":5,"creator":{"userId":123},"coverImgUrl":"http://p1.music.126.net/liked-playlist.jpg"}]}`
+		case "/eapi/playmode/intelligence/list":
+			if !strings.Contains(req.Header.Get("Cookie"), "MUSIC_U=test-session") || fields["playlistId"] != "86" ||
+				fields["startMusicId"] != "42" || fields["type"] != "fromPlayOne" || fields["count"] != float64(1) {
+				return nil, errors.New("heart mode must request recommendations from the liked track and playlist")
+			}
+			if heartRequests.Add(1) == 1 {
+				if fields["songId"] != "42" {
+					return nil, errors.New("heart mode must start from its seed")
+				}
+				body = `{"code":200,"data":[{"recommended":true,"songInfo":{"id":43}}]}`
+			} else {
+				if fields["songId"] != "43" {
+					return nil, errors.New("heart mode must continue from its last recommendation")
+				}
+				body = `{"code":"500","data":null}`
+			}
 		case "/api/toplist/detail":
-			body = `{"code":200,"list":[{"id":82,"name":"Chart"}]}`
+			body = `{"code":200,"list":[{"id":82,"name":"Chart","coverImgUrl":"http://p1.music.126.net/chart.jpg"}]}`
 		case "/api/v1/cloud/get":
 			switch params.Get("offset") {
 			case "0":
@@ -120,11 +148,16 @@ func TestNetEaseQRLoginAndMedia(t *testing.T) {
 			}
 		case "/api/v6/playlist/detail":
 			switch params.Get("id") {
+			case "86":
+				if req.Header.Get("Cookie") != cookie || params.Get("n") != "30" {
+					return nil, errors.New("heart mode must preview the first liked track")
+				}
+				body = `{"code":200,"playlist":{"id":86,"specialType":5,"creator":{"userId":123},"trackIds":[{"id":42}],"tracks":[{"id":42,"name":"Liked fixture track","al":{"picUrl":"http://p1.music.126.net/heart-seed.jpg"}}]}}`
 			case "3136952023":
 				if req.Header.Get("Cookie") != cookie {
 					return nil, errors.New("private radar was requested as a guest")
 				}
-				body = `{"code":200,"playlist":{"id":3136952023,"trackIds":[{"id":42}]}}`
+				body = `{"code":200,"playlist":{"id":3136952023,"coverImgUrl":"http://p1.music.126.net/radar.jpg","trackIds":[{"id":42}]}}`
 			case "88":
 				body = `{"code":200,"playlist":{"id":88,"trackIds":[{"id":42}],"tracks":[{"id":42}]}}`
 			default:
@@ -342,6 +375,10 @@ func TestNetEaseQRLoginAndMedia(t *testing.T) {
 			results <- fmt.Errorf("requesting a new stream after sign-out returned %v", err)
 			return
 		}
+		if _, err := source.StationNext("HEART"); !errors.Is(err, music.ErrSignIn) {
+			results <- fmt.Errorf("heart mode after sign-out returned %v", err)
+			return
+		}
 		results <- nil
 	}()
 	wait()
@@ -356,15 +393,41 @@ func checkNetEaseDiscovery(source music.Source) error {
 	if err != nil || forYou == nil || len(forYou.Sections) != 1 {
 		return fmt.Errorf("unexpected for-you page: %v, %v", forYou, err)
 	}
-	if len(home.Sections) < 2 || len(home.Sections[0].Links) < 3 || home.Sections[0].Links[0].Page != "daily" ||
-		home.Sections[0].Links[0].ImageURL != "https://p1.music.126.net/daily-first.jpg" {
-		return fmt.Errorf("home first section should show daily feature card with first song cover: %+v", home.Sections)
+	const image = "https://p1.music.126.net/"
+	features := home.Sections[0]
+	for i, want := range []struct{ page, cover string }{
+		{"daily", "daily-first.jpg"}, {"radar", "radar.jpg"}, {"heartbeat", "heart-seed.jpg"}, {"charts", "chart.jpg"},
+	} {
+		if i >= len(features.Links) || features.Links[i].Page != want.page || features.Links[i].ImageURL != image+want.cover {
+			return fmt.Errorf("home feature %s should use %s: %+v", want.page, want.cover, features.Links)
+		}
+	}
+	if len(features.Stations) != 1 || features.Stations[0].ID != "DEFAULT" || features.Stations[0].ImageURL != image+"public-mix.jpg" {
+		return fmt.Errorf("home roaming card should use public recommendation artwork: %+v", features.Stations)
 	}
 	if len(home.Sections[1].Playlists) == 0 {
 		return fmt.Errorf("home second section should show discovery playlists: %+v", home.Sections[1])
 	}
-	if links := forYou.Sections[0].Links; len(links) != 3 || links[0].Page != "daily" || links[1].Page != "radar" || links[2].Page != "recommendations" {
-		return fmt.Errorf("for-you links should list daily, radar and recommendations: %v", links)
+	if links := forYou.Sections[0].Links; len(links) != 3 || links[0] != features.Links[0] || links[1] != features.Links[1] || links[2] != features.Links[2] {
+		return fmt.Errorf("for-you links should match their home cards: %v", links)
+	}
+	heart := features.Links[2]
+	if heart.Title != "心动模式" || heart.Subtitle != "你的红心歌曲和更多相似推荐" || heart.StationID != "HEART" {
+		return fmt.Errorf("unexpected heart mode card: %+v", heart)
+	}
+	heartPage, err := source.Browse(heart.Page)
+	if err != nil || heartPage == nil || heartPage.Title != heart.Title || heartPage.ImageURL != heart.ImageURL || len(heartPage.Sections) != 1 {
+		return fmt.Errorf("unexpected heart mode page: %v, %v", heartPage, err)
+	}
+	if stations := heartPage.Sections[0].Stations; len(stations) != 1 || stations[0].ID != "HEART" || stations[0].Name != heart.Title {
+		return fmt.Errorf("heart page should start continuous playback: %+v", stations)
+	}
+	heartTracks, err := source.StationNext("HEART")
+	if err != nil || len(heartTracks) != 2 || heartTracks[0].ID != "42" || heartTracks[1].ID != "43" || heartTracks[1].Name != "Heart recommendation" {
+		return fmt.Errorf("heart mode should include the seed and server recommendation: %+v, %v", heartTracks, err)
+	}
+	if tracks, err := source.StationNext("HEART"); err == nil || len(tracks) != 0 {
+		return fmt.Errorf("failed heart mode should report its error: %+v, %v", tracks, err)
 	}
 	for _, sample := range []struct {
 		page, first string
@@ -397,10 +460,13 @@ func checkNetEaseDiscovery(source music.Source) error {
 		return fmt.Errorf("unexpected second cloud page: %v, %v", cloud, err)
 	}
 	stations, err := source.Stations()
-	if err != nil || len(stations) != 3 {
+	if err != nil || len(stations) != 4 {
 		return fmt.Errorf("unexpected NetEase stations: %v, %v", stations, err)
 	}
 	for _, station := range stations {
+		if station.ID == "HEART" {
+			continue
+		}
 		tracks, err := source.StationNext(station.ID)
 		if err != nil || len(tracks) != 1 || tracks[0].ID != "42" {
 			return fmt.Errorf("unexpected %s station tracks: %v, %v", station.ID, tracks, err)

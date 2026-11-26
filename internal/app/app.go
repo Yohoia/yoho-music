@@ -17,6 +17,9 @@ var settingsIcon []byte
 //go:embed assets/Tray.png
 var trayIcon []byte
 
+//go:embed assets/YohoAvatar.png
+var yohoAvatar []byte
+
 // Run starts the app and blocks until it exits.
 func Run() error {
 	nsgo.Run(App)

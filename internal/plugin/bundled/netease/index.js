@@ -1,4 +1,5 @@
 import { account, api, fault, mediaURL, publicAPI, requireAccount } from "./client.js";
+import { heartNext, heartPreview } from "./heart.js";
 import {
   albumEntry, artistEntry, commentEntry, episodeEntry, idOf, items, offsetOf, pageSize,
   playlistEntry, showEntry, songDetails, trackEntry, trackIdentity,
@@ -6,6 +7,10 @@ import {
 
 export { account };
 export { signIn, signOut } from "./client.js";
+
+const privateRadarID = "3136952023";
+const heartModeTitle = "心动模式";
+const heartModeSubtitle = "你的红心歌曲和更多相似推荐";
 
 const searchTypes = {
   tracks: { type: 1, field: "songs", count: "songCount", convert: (value) => trackEntry(value) },
@@ -50,6 +55,15 @@ async function discoveryPlaylists() {
   const body = await publicAPI("/api/personalized/playlist", { limit: 24 });
   if (!Array.isArray(body.result)) throw new Error("网易云音乐未返回推荐歌单。");
   return body.result.map((value) => playlistEntry(value));
+}
+
+async function personalizedPlaylists() {
+  const body = await api("/api/v1/discovery/recommend/resource");
+  return items(body.recommend).map((value) => playlistEntry(value));
+}
+
+function firstPlaylistCover(playlists = []) {
+  return playlists.find((playlist) => playlist.imageUrl)?.imageUrl || "";
 }
 
 async function discoverySection(limit = 0) {
@@ -101,37 +115,33 @@ async function dailySongs() {
   return items(body.data?.dailySongs || body.recommend);
 }
 
-async function dailySection() {
-  let imageUrl = "";
-  let subtitle = "每日精选 · 根据你的口味推荐";
-  try {
-    const [song] = (await dailySongs()).filter((s) => s?.id);
-    if (song) {
-      imageUrl = albumEntry(song.al || song.album).imageUrl;
-      if (song.name) subtitle = "每日推荐｜从「" + song.name + "」听起";
-    }
-  } catch {
-    // Keep the Daily Recommendations card available even before sign-in.
-  }
+function heartStation() {
+  return { id: "HEART", name: heartModeTitle, description: heartModeSubtitle };
+}
+
+async function heartModePage() {
+  const { imageUrl } = await heartPreview();
   return {
-    links: [
-      { title: "每日推荐", subtitle, page: "daily", imageUrl },
-      { title: "私人雷达", subtitle: "根据你的听歌口味持续发现", page: "radar" },
-      { title: "个性化歌单", subtitle: "猜你喜欢的精选歌单合集", page: "recommendations" },
-      { title: "排行榜", subtitle: "云音乐官方热门榜单精选", page: "charts" },
-    ],
-    stations: [stationList()[0]],
+    title: heartModeTitle, subtitle: heartModeSubtitle, imageUrl,
+    sections: [{ stations: [{ ...heartStation(), imageUrl }] }],
   };
 }
 
-const forYou = {
-  title: "为你推荐",
-  links: [
-    { title: "每日推荐", subtitle: "每日精选 · 根据你的口味推荐", page: "daily" },
-    { title: "私人雷达", subtitle: "根据你的听歌口味持续发现", page: "radar" },
-    { title: "个性化歌单", subtitle: "猜你喜欢的精选歌单合集", page: "recommendations" },
-  ],
-};
+async function forYouLinks(user) {
+  // Artwork is optional. Keep the links usable if any preview fails.
+  const [songs, radar, heart] = await Promise.all([
+    dailySongs().catch(() => []),
+    rawPlaylist(privateRadarID, 1).catch(() => null),
+    heartPreview().catch(() => null),
+  ]);
+  const song = songs.find((value) => value?.id);
+  const subtitle = song?.name ? "每日推荐｜从「" + song.name + "」听起" : "每日精选 · 根据你的口味推荐";
+  return [
+    { title: "每日推荐", subtitle, page: "daily", imageUrl: albumEntry(song?.al || song?.album).imageUrl },
+    { title: "私人雷达", subtitle: "根据你的听歌口味持续发现", page: "radar", imageUrl: mediaURL(radar?.coverImgUrl || radar?.picUrl) },
+    { title: heartModeTitle, subtitle: heartModeSubtitle, page: "heartbeat", stationId: "HEART", imageUrl: heart?.imageUrl || "" },
+  ];
+}
 
 export function navigation() {
   return [
@@ -144,9 +154,10 @@ export function navigation() {
 }
 
 export async function home() {
-  await requireAccount();
-  const [hero, discovery, weekRecord, allRecord] = await Promise.all([
-    dailySection(),
+  const user = await requireAccount();
+  const [links, chartPlaylists, discovery, weekRecord, allRecord] = await Promise.all([
+    forYouLinks(user),
+    charts().catch(() => []),
     discoverySection(5),
     recordPreviewSection(true),
     recordPreviewSection(false),
@@ -154,7 +165,11 @@ export async function home() {
   return {
     title: "发现音乐",
     sections: [
-      hero,
+      {
+        links: [...links, { title: "排行榜", subtitle: "云音乐官方热门榜单精选", page: "charts", imageUrl: firstPlaylistCover(chartPlaylists) }],
+        // Reuse public artwork without requesting a batch of roaming tracks.
+        stations: [{ ...stationList()[0], imageUrl: firstPlaylistCover(discovery.playlists) }],
+      },
       discovery,
       weekRecord,
       allRecord,
@@ -193,38 +208,35 @@ async function recordPage(week) {
 }
 
 export async function browse({ page }) {
-  await requireAccount();
-  if (page === "my-music" || page === "for-you") {
-    const { title, links } = page === "my-music" ? myMusic : forYou;
-    return { title, sections: [{ links }] };
-  }
+  const user = await requireAccount();
+  if (page === "my-music") return { title: myMusic.title, sections: [{ links: myMusic.links }] };
+  if (page === "for-you") return { title: "为你推荐", sections: [{ links: await forYouLinks(user) }] };
+  if (page === "heartbeat") return heartModePage();
   if (page === "charts") return { title: "排行榜", sections: [{ playlists: await charts() }] };
   if (page === "discovery") return { title: "推荐歌单", sections: [{ playlists: await discoveryPlaylists(), empty: "暂无推荐歌单。" }] };
   if (page === "playlists-hub") {
-    const [mine, discovery] = await Promise.all([
-      playlists()
-        .then((list) => ({ title: "我的歌单", playlists: list, empty: "暂无自建或收藏歌单。" }))
-        .catch((error) => ({
-          title: "我的歌单",
-          empty: error?.code === "signIn" ? "登录后查看我的歌单。" : "我的歌单暂时无法加载。",
-        })),
+    const [discovery, mine] = await Promise.all([
       discoverySection(),
+      playlists()
+        .then((list) => ({ title: "私人歌单", playlists: list, empty: "暂无自建或收藏歌单。" }))
+        .catch((error) => ({
+          title: "私人歌单",
+          empty: error?.code === "signIn" ? "登录后查看私人歌单。" : "私人歌单暂时无法加载。",
+        })),
     ]);
-    return { title: "歌单", sections: [mine, discovery] };
+    return { title: "歌单", sections: [discovery, mine] };
   }
   if (page === "record:week" || page === "record:all") return recordPage(page === "record:week");
   if (page === "radar") {
-    const user = await requireAccount();
-    const radar = await loadPlaylist("3136952023", user);
-    return { title: "私人雷达", sections: [{ tracks: radar.tracks, empty: "网易云音乐暂未返回私人雷达歌曲。" }] };
+    const radar = await loadPlaylist(privateRadarID, user);
+    return { title: "私人雷达", imageUrl: radar.imageUrl, sections: [{ tracks: radar.tracks, empty: "网易云音乐暂未返回私人雷达歌曲。" }] };
   }
   if (page === "daily") {
     const songs = await dailySongs();
     return { title: "每日推荐", sections: [{ tracks: await detailedTracks(songs), empty: "暂无每日推荐歌曲。" }] };
   }
   if (page === "recommendations") {
-    const lists = await api("/api/v1/discovery/recommend/resource");
-    return { title: "个性化歌单", sections: [{ playlists: items(lists.recommend).map((value) => playlistEntry(value)), empty: "暂无个性化歌单。" }] };
+    return { title: "个性化歌单", sections: [{ playlists: await personalizedPlaylists(), empty: "暂无个性化歌单。" }] };
   }
   const cloud = /^cloud:(\d+)$/.exec(page);
   if (cloud) return cloudPage(offsetOf(Number(cloud[1])));
@@ -433,6 +445,7 @@ function stationList() {
     { id: "DEFAULT", name: "私人漫游", description: "根据你的听歌偏好持续推荐" },
     { id: "FAMILIAR", name: "熟悉的歌", description: "听听你熟悉的歌曲" },
     { id: "EXPLORE", name: "新发现", description: "探索还没听过的音乐" },
+    heartStation(),
   ];
 }
 
@@ -441,6 +454,7 @@ export function stations() {
 }
 
 export async function stationNext({ id }) {
+  if (id === "HEART") return heartNext();
   const mode = id === "personal" ? "DEFAULT" : id;
   if (!stationList().some((station) => station.id === mode)) throw fault("unavailable", "网易云音乐电台不存在。");
   const body = await api("/api/v1/radio/get", { mode, limit: 3, timestamp: Date.now() });

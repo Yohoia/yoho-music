@@ -411,46 +411,6 @@ func isPluginCategoryPage(r route, entries []pluginNavEntry) bool {
 	return false
 }
 
-func (m *model) pluginAccountMenuItems(cx *core.Scope, src music.Source, closeMenu func()) core.Node {
-	return core.Dynamic(func(cx *core.Scope) core.Node {
-		p := colors(cx)
-		state := m.accountOf(src)
-		var rows []core.Node
-		if state.account != nil && state.account.Name != "" {
-			name := label(state.account.Name, 12, core.FontWeightNormal, p.muted)
-			name.MaxLines = 1
-			name.Style.Padding = core.Symmetric(4, 12)
-			rows = append(rows, name)
-		}
-		if state.busy && state.account != nil {
-			busy := label(i18n.T("Checking account…"), 12, core.FontWeightNormal, p.muted)
-			busy.Style.Padding = core.Symmetric(4, 12)
-			rows = append(rows, busy)
-		} else if !state.busy && src.Can("signOut") && (state.account != nil || !src.Can("account")) {
-			text := i18n.T("Sign Out")
-			rows = append(rows, base.Button{
-				OnPress: func(core.PressEvent) {
-					closeMenu()
-					m.changeAccount(src, false)
-				},
-				Label:  text,
-				TestID: "sign-out",
-				Style: core.Style{
-					Direction: core.Row, Height: core.Pt(36), AlignItems: core.AlignCenter, Gap: 10,
-					Padding: core.Symmetric(0, 12), CornerRadius: 12,
-					Hover: &core.Style{Background: p.hover},
-				},
-				Children: []core.Node{ui.Icon(lucide.LogOut, 15, func() core.Color { return p.muted }), label(text, 13, core.FontWeightMedium, p.text)},
-			})
-		}
-		if len(rows) == 0 {
-			return nil
-		}
-		divider := core.View{Style: core.Style{Height: core.Pt(1), Background: p.line, Margin: core.Symmetric(4, 10)}}
-		return core.View{Style: core.Style{Gap: 2}, Children: append([]core.Node{divider}, rows...)}
-	})
-}
-
 func (m *model) playStation(src music.Source, station music.Station) {
 	go func() {
 		tracks, err := src.StationNext(station.ID)

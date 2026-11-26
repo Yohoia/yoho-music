@@ -245,12 +245,6 @@ func (m *model) headerActionButton(p palette, ref *core.Ref, icon glyph, name, i
 	}
 }
 
-func (m *model) hamburgerButton(p palette, ref *core.Ref) core.Node {
-	return m.headerActionButton(p, ref, lucide.Menu, i18n.T("Sources"), "source-menu-trigger",
-		m.sourceMenuOpen.Get,
-		func() { m.sourceMenuOpen.Update(func(open bool) bool { return !open }) })
-}
-
 func (m *model) searchIconButton(cx *core.Scope, openSearch func()) core.Node {
 	return m.headerActionButton(colors(cx), nil, lucide.Search, i18n.T("Search"), "search-trigger",
 		m.searchOpen.Get, openSearch)
@@ -449,9 +443,9 @@ func isLocalCategoryPage(page string) bool {
 }
 
 func (m *model) subNavBar(cx *core.Scope, p palette, menuBtnRef *core.Ref, brand core.Node, items []core.Node, openSearch func()) core.Node {
-	// Hang the search icon and hamburger button together on the right of the paper column
+	// Hang the search icon and account avatar together on the right of the paper column
 	// so the wordmark aligns flush-left and the last category pill aligns flush-right with the content below.
-	rightTools := row(m.searchIconButton(cx, openSearch), m.hamburgerButton(p, menuBtnRef))
+	rightTools := row(m.searchIconButton(cx, openSearch), m.accountAvatarButton(cx, p, menuBtnRef))
 	rightTools.Style.Gap = 6
 	hangingTools := core.View{
 		Style:    core.Style{Position: core.Absolute, Right: core.Pt(-80), Top: core.Pt(1)},
@@ -471,21 +465,8 @@ func (m *model) sourceMenuOverlay(cx *core.Scope, menuBtnRef *core.Ref) core.Nod
 	return core.Show{When: m.sourceMenuOpen.Get, Then: func(cx *core.Scope) core.Node {
 		p := colors(cx)
 		closeMenu := func() { m.sourceMenuOpen.Set(false) }
-		const menuWidth = core.Points(228)
-		menuLeft, menuTop := core.Points(88), core.Points(50)
-		if bounds, ok := menuBtnRef.Bounds(); ok {
-			menuTop = bounds.Origin.Y + bounds.Size.Height + 8
-			if bounds.Origin.X > 260 {
-				menuLeft = max(core.Points(16), bounds.Origin.X+bounds.Size.Width-menuWidth)
-			} else {
-				menuLeft = bounds.Origin.X
-			}
-		}
-		option := func(icon glyph, text, sourceID, id string) core.Node {
+		option := func(icon glyph, text, sourceID, id string) base.Button {
 			selected := func() bool { return m.source.Get() == sourceID }
-			check := core.Show{When: selected, Then: func(*core.Scope) core.Node {
-				return ui.Icon(lucide.Check, 15, func() core.Color { return p.text })
-			}}
 			name := core.Text{Content: text, MaxLines: 1, Style: core.Style{FontSize: 14, FontWeight: core.FontWeightSemibold, Color: p.text, FlexGrow: 1, FlexShrink: 1}}
 			return base.Button{
 				OnPress: func(core.PressEvent) {
@@ -498,9 +479,14 @@ func (m *model) sourceMenuOverlay(cx *core.Scope, menuBtnRef *core.Ref) core.Nod
 				Style: core.Style{
 					Direction: core.Row, Height: core.Pt(40), AlignItems: core.AlignCenter, Gap: 12,
 					Padding: core.Symmetric(0, 12), CornerRadius: 14,
-					Hover: &core.Style{Background: p.hover},
 				},
-				Children: []core.Node{ui.Icon(icon, 16, func() core.Color { return p.text }), name, check},
+				StyleFunc: func() core.Style {
+					if selected() {
+						return core.Style{Background: p.selected, Hover: &core.Style{Background: p.selected}}
+					}
+					return core.Style{Hover: &core.Style{Background: p.hover}}
+				},
+				Children: []core.Node{ui.Icon(icon, 16, func() core.Color { return p.text }), name},
 			}
 		}
 
@@ -508,13 +494,40 @@ func (m *model) sourceMenuOverlay(cx *core.Scope, menuBtnRef *core.Ref) core.Nod
 		rows = append(rows, option(lucide.Library, "Yoho Music", local.ID, "source-local"))
 		for _, plug := range m.plugins.Get() {
 			info := plug.Info()
-			rows = append(rows, option(lucide.Radio, sourceDisplayName(info), info.ID, "source-"+info.ID))
+			source := plug
+			entry := option(lucide.Radio, sourceDisplayName(info), info.ID, "source-"+info.ID)
+			entry.Style.FlexGrow, entry.Style.FlexShrink = 1, 1
+			rows = append(rows, row(entry, core.Dynamic(func(cx *core.Scope) core.Node {
+				state := m.accountOf(source)
+				if !source.Can("signOut") || state.account == nil && source.Can("account") {
+					return nil
+				}
+				logout := base.Button{
+					Label:    i18n.T("Sign Out") + " " + sourceDisplayName(source.Info()),
+					TestID:   "source-sign-out-" + source.Info().ID,
+					Disabled: func() bool { return m.accountOf(source).busy },
+					OnPress: func(core.PressEvent) {
+						closeMenu()
+						m.changeAccount(source, false)
+					},
+					Style: core.Style{
+						Width: core.Pt(32), Height: core.Pt(32), CornerRadius: 16,
+						FlexShrink: 0, Margin: core.Edges{Right: 4},
+						AlignItems: core.AlignCenter, JustifyContent: core.JustifyCenter,
+						Hover: &core.Style{Background: p.hover},
+					},
+					StyleFunc: func() core.Style {
+						if m.accountOf(source).busy {
+							return core.Style{Opacity: core.Alpha(.45)}
+						}
+						return core.Style{}
+					},
+					Children: []core.Node{ui.Icon(lucide.LogOut, 15, func() core.Color { return p.muted })},
+				}
+				return ui.Tooltip{Text: logout.Label, Trigger: logout}
+			})))
 		}
-		if src := m.activeSource(); src != nil && src.Info().ID != local.ID {
-			rows = append(rows, m.pluginAccountMenuItems(cx, src, closeMenu))
-		}
-
-		// Bottom utility section in the hamburger menu: Plugin Market & Settings.
+		// Bottom utility section in the account menu: Plugin Market & Settings.
 		menuAction := func(icon glyph, text, shortcut, id string, action func()) core.Node {
 			children := []core.Node{
 				ui.Icon(icon, 15, func() core.Color { return p.muted }),
@@ -551,10 +564,10 @@ func (m *model) sourceMenuOverlay(cx *core.Scope, menuBtnRef *core.Ref) core.Nod
 			cardBg = p.sidebar
 			shadowAlpha = .42
 		}
-		card := core.View{
-			TestID: "source-menu",
+		card := core.Overlay{
+			Anchor: menuBtnRef, Placement: core.PlaceBottom, Align: core.AlignEnd, Offset: 8, Margin: 16,
+			TestID: "source-menu", OnCancel: closeMenu,
 			Style: core.Style{
-				Position: core.Absolute, Left: core.Pt(menuLeft), Top: core.Pt(menuTop),
 				Width: core.Pt(228), CornerRadius: 22,
 				Background: cardBg, BorderWidth: 1, BorderColor: p.barLine,
 				Padding: core.All(8), Gap: 2,

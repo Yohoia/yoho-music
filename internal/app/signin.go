@@ -44,7 +44,9 @@ func (m *model) refreshAccount(source music.Source) {
 		return
 	}
 	id := source.Info().ID
-	m.setAccount(id, pluginAccount{source: source, busy: true})
+	state := m.accountOf(source)
+	state.busy = true
+	m.setAccount(id, state)
 	go func() {
 		account, _ := source.Account()
 		m.cx.Post(func() { m.setAccount(id, pluginAccount{source: source, account: account}) })
